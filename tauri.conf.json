@@ -1,0 +1,28 @@
+{
+  "productName": "rsclip",
+  "version": "0.3.4",
+  "identifier": "app.rsclip.desktop",
+  "app": {
+    "windows": []
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis", "msi"],
+    "icon": ["icons/icon.ico"],
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser",
+        "sidebarImage": "installer/nsis-sidebar.bmp",
+        "headerImage": "installer/nsis-header.bmp",
+        "uninstallerHeaderImage": "installer/nsis-uninstall-header.bmp",
+        "installerIcon": "installer/setup.ico",
+        "uninstallerIcon": "installer/setup.ico"
+      },
+      "wix": {
+        "bannerPath": "installer/msi-banner.bmp",
+        "dialogImagePath": "installer/msi-dialog.bmp"
+      }
+    }
+  }
+}
+

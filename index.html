@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>rsclip</title>
+<link rel="stylesheet" href="/app.css">
+<script defer src="/app.js"></script>
+</head>
+<body>
+<header class="top">
+  <strong class="brand">rsclip</strong>
+  <nav id="library-nav" aria-label="Library"><button id="clips" aria-pressed="true">Clips</button><button id="shots" aria-pressed="false">Screenshots</button></nav>
+  <div class="tools">
+    <div class="performance" role="group" aria-label="rsclip process usage">
+      <span title="Share of total CPU capacity used by rsclip and its child processes">CPU <b id="perf-cpu">&#8212;</b></span>
+      <span title="Combined resident memory for rsclip and its child processes">RAM <b id="perf-ram">&#8212;</b></span>
+      <span title="Usage of the busiest GPU engine for rsclip and its child processes">GPU <b id="perf-gpu">&#8212;</b></span>
+    </div>
+    <button id="toggle" class="status"><span></span><b>Start replay buffer</b></button>
+    <button id="record" class="record-button" type="button"><span aria-hidden="true"></span><b>Record</b></button>
+    <details><summary>Clip length <b id="length">30s</b><svg class="chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></summary><div class="panel lengths"><small>SAVE LAST</small><form id="lengths" class="option-form">
+      <label>Short clip (s) <input id="short-seconds" type="number" min="5" max="600" step="1" value="30" required></label>
+      <label>Long clip (s) <input id="long-seconds" type="number" min="5" max="600" step="1" value="120" required></label>
+      <button type="submit">Apply lengths</button>
+      </form></div></details>
+    <details><summary>Keybinds<svg class="chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></summary><div class="panel keys"><small>GLOBAL SHORTCUTS</small><div id="keys"></div><p id="key-help" aria-live="polite" hidden></p></div></details>
+    <button id="settings-nav" class="settings-nav" type="button">
+      <svg id="settings-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Z"/><path d="m10 3-.7 2.4-1.5.9-2.5-.6-2 3.5 1.8 1.7v1.8l-1.8 1.7 2 3.5 2.5-.6 1.5.9.7 2.4h4l.7-2.4 1.5-.9 2.5.6 2-3.5-1.8-1.7v-1.8l1.8-1.7-2-3.5-2.5.6-1.5-.9L14 3Z"/></svg>
+      <svg id="home-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" hidden><path d="m3 10 9-7 9 7v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M9 21v-7h6v7"/></svg>
+      <span id="settings-nav-label">Settings</span>
+    </button>
+  </div>
+</header>
+<main>
+  <p id="notice" role="status" hidden></p>
+  <section id="library">
+    <div class="heading"><h1 id="title">Clips</h1><span id="count"></span><div class="actions"><input type="search" id="search" placeholder="Search clips" aria-label="Search library"><button id="capture">Save short</button><button id="capture-long">Save long</button></div></div>
+    <div id="groups"></div>
+  </section>
+  <section id="settings-page" class="settings" aria-labelledby="settings-title" hidden>
+    <h1 id="settings-title" tabindex="-1">Settings</h1>
+    <nav class="settings-tabs" aria-label="Settings sections">
+      <button id="settings-general" type="button" aria-pressed="true">General</button>
+      <button id="settings-video" type="button" aria-pressed="false">Video</button>
+    </nav>
+    <section id="video-options" class="settings-section" aria-labelledby="capture-title" hidden>
+      <h2 id="capture-title">Capture</h2>
+      <div class="capture-layout">
+      <form id="capture-settings" class="option-form">
+        <label>Monitor <select id="output" required disabled><option value="">Loading monitors...</option></select></label>
+        <label>Frame rate (FPS) <input type="number" id="fps" min="15" max="240" step="1" value="60" required></label>
+        <label>Video codec <select id="codec"><option value="h264">H.264</option><option value="hevc">H.265 / HEVC</option><option value="av1">AV1</option></select></label>
+        <label>Compression <select id="compression"><option value="cbr">Constant bitrate</option><option value="vbr">Variable bitrate</option><option value="quality">Target quality</option></select></label>
+        <label><span id="bitrate-label">Bitrate (Mbps)</span> <input type="number" id="bitrate" min="2" max="80" step="1" value="12" required></label>
+        <label id="quality-row" hidden>Quality (1 best) <input type="number" id="quality" min="1" max="51" step="1" value="23" required></label>
+        <label>Encoder preset <select id="preset"><option value="1">P1 / Fastest</option><option value="3">P3 / Fast</option><option value="5">P5 / Quality</option></select></label>
+        <button type="submit">Apply capture settings</button>
+      </form>
+      <section class="monitor-preview" aria-labelledby="monitor-preview-title">
+        <div class="monitor-preview-header">
+          <strong id="monitor-preview-title">Screen preview</strong>
+          <button id="refresh-monitor" type="button" disabled>Refresh</button>
+        </div>
+        <div class="monitor-preview-frame">
+          <img id="monitor-preview-image" alt="Preview of the selected monitor" hidden>
+          <p id="monitor-preview-status" role="status">Choose a monitor to preview.</p>
+        </div>
+      </section>
+      </div>
+      <p id="buffer-budget"></p>
+      <p>Codec support is checked on your GPU. H.264 offers the widest playback support.</p>
+    </section>
+    <div id="general-options">
+      <section class="settings-section" aria-labelledby="storage-title">
+        <h2 id="storage-title">Storage</h2>
+        <label for="media-folder">Clips, recordings, and screenshots folder</label>
+        <div class="storage-row">
+          <input id="media-folder" type="text" readonly placeholder="Loading folder...">
+          <button id="browse-media" type="button">Browse...</button>
+          <button id="add-library-folder" type="button">Add older folder...</button>
+        </div>
+        <p>New captures use this folder. Older captures stay in your library.</p>
+      </section>
+      <div class="settings-cards">
+        <section class="settings-section preference-card" aria-labelledby="startup-title">
+          <header class="preference-heading">
+            <span class="preference-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><path d="M12 3v9M7 6a8 8 0 1 0 10 0"/></svg></span>
+            <h2 id="startup-title">Startup</h2>
+          </header>
+          <label class="preference">
+            <span class="preference-copy"><strong>Launch at Windows sign-in</strong><small>Open rsclip automatically when you log in.</small></span>
+            <span class="switch"><input id="launchOnLogin" type="checkbox" role="switch" disabled><span class="switch-track" aria-hidden="true"></span></span>
+          </label>
+          <label class="preference">
+            <span class="preference-copy"><strong>Start the replay buffer</strong><small>Keep recent gameplay ready to save when rsclip opens.</small></span>
+            <span class="switch"><input id="autoBuffer" type="checkbox" role="switch" disabled><span class="switch-track" aria-hidden="true"></span></span>
+          </label>
+          <label class="preference">
+            <span class="preference-copy"><strong>Start hidden in the tray</strong><small>Open the window by clicking the tray icon.</small></span>
+            <span class="switch"><input id="startHidden" type="checkbox" role="switch" disabled><span class="switch-track" aria-hidden="true"></span></span>
+          </label>
+        </section>
+        <section class="settings-section preference-card" aria-labelledby="feedback-title">
+          <header class="preference-heading">
+            <span class="preference-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/></svg></span>
+            <h2 id="feedback-title">Capture feedback</h2>
+          </header>
+          <label class="preference">
+            <span class="preference-copy"><strong>Capture overlay</strong><small>Show a freeze-frame notification for clips and recordings.</small></span>
+            <span class="switch"><input id="captureOverlay" type="checkbox" role="switch" disabled><span class="switch-track" aria-hidden="true"></span></span>
+          </label>
+          <label class="preference">
+            <span class="preference-copy"><strong>Save sounds</strong><small>Play a sound when a clip or screenshot is saved.</small></span>
+            <span class="switch"><input id="saveSounds" type="checkbox" role="switch" disabled><span class="switch-track" aria-hidden="true"></span></span>
+          </label>
+        </section>
+      </div>
+    </div>
+  </section>
+  <section id="editor" hidden>
+    <div class="crumb"><button id="back">‹ Library</button><span>/</span><strong id="filename"></strong></div>
+    <div class="workspace">
+      <div class="preview"><video id="video" playsinline preload="auto"></video><img id="image" alt="Saved screenshot" hidden></div>
+      <aside><h2>Details</h2><p id="playback-status" role="status" hidden></p><dl><div><dt>Size</dt><dd id="size"></dd></div><div><dt>Duration</dt><dd id="duration"></dd></div><div><dt>Resolution</dt><dd id="resolution"></dd></div></dl>
+        <div class="file-actions"><button id="export">Export H.264 trim</button><button id="compatible">Make H.264 copy</button><button id="reveal-media" type="button">Show in File Explorer</button><a id="download" download>Download file</a></div>
+      </aside>
+    </div>
+    <div id="timeline">
+      <div class="timeline-head">
+        <button id="play" type="button" aria-label="Play" disabled>Play</button>
+        <output id="time">0:00 / 0:00</output>
+        <div class="volume-controls">
+          <button id="mute" type="button" aria-pressed="false">Mute</button>
+          <input id="volume" aria-label="Volume" type="range" min="0" max="1" value="1" step="0.05">
+        </div>
+        <button id="fullscreen" type="button" aria-pressed="false">Fullscreen</button>
+        <span>Trim <output id="selection"></output></span>
+      </div>
+      <div id="ticks"></div>
+      <div class="track"><div id="range"></div><input id="seek" type="range" min="0" max="1" value="0" step="0.1" aria-label="Playhead"></div>
+      <div class="trim-controls"><label>In <input id="start" type="range" min="0" max="1" value="0" step="0.1"></label><label>Out <input id="end" type="range" min="0" max="1" value="1" step="0.1"></label></div>
+    </div>
+  </section>
+</main>
+</body>
+</html>
+
+

@@ -1,0 +1,55 @@
+# rsclip
+
+A Windows replay clipper with a Rust backend and a Tauri desktop UI powered by WebView2. It captures the selected display through FFmpeg Desktop Duplication, encodes video with NVIDIA NVENC, and records desktop audio through Windows WASAPI loopback.
+
+## Run
+
+1. Install Rust, Microsoft Edge WebView2 Runtime, and a Windows FFmpeg build that includes `ddagrab` and `h264_nvenc`. Put FFmpeg on PATH and make sure the NVIDIA driver is installed.
+2. In this folder, run `cargo run --release`. rsclip opens in its own desktop window. The release executable is `target\release\rsclip.exe`.
+3. The replay buffer starts when rsclip opens by default. Minimize to the taskbar or close the window to hide rsclip in the system tray. Left-click its tray icon to restore the window. Right-click the icon and choose **Quit rsclip** to stop capture and exit.
+
+Check your FFmpeg build with `ffmpeg -hide_banner -h filter=ddagrab` and `ffmpeg -hide_banner -h encoder=h264_nvenc`.
+
+| Action | Shortcut |
+| --- | --- |
+| Start or stop buffering | Alt + F9 |
+| Start or stop manual recording | Alt + F7 |
+| Save short clip | Alt + F10 |
+| Save long clip | Alt + F11 |
+| Take a screenshot | Alt + F8 |
+
+Open **Keybinds**, select a shortcut, then press its replacement. Use Ctrl, Alt, or Shift with a letter, number, or function key. Press Esc to cancel. Shortcuts are saved across restarts.
+
+## Capture settings
+
+- **Clip length** accepts separate short and long lengths from 5 to 600 seconds. Defaults are 30 and 120 seconds. Both save actions use one buffer sized for the long clip. Allow the buffer to fill after increasing the long length.
+- **Settings → Capture** lists connected monitors on the capture GPU by their Windows names. Selecting a monitor shows one preview frame. Use **Refresh** for a new frame and **Apply capture settings** to switch the recorder. The preview stays in memory. The same menu accepts 15–240 FPS at the display's native resolution. Pick H.264, H.265/HEVC, or AV1 hardware encoding. Changing the capture profile requires stopping the buffer. rsclip tests the new profile against the selected display, GPU, driver, and FFmpeg build before saving it.
+- Choose constant bitrate, variable bitrate, or target quality. Set a bitrate from 2 to 80 Mb/s and an encoder preset from the menu. Variable bitrate can peak at twice the target. In target-quality mode the bitrate is a cap and lower quality numbers request higher visual quality. Settings persist across restarts.
+- The buffer stores two-second MP4 segments. The default 120-second long buffer at 12 Mb/s needs roughly 190 MB of temporary storage. Saved clips remux existing packets. While buffering, saves use completed segments, so they can omit roughly the latest two seconds and round to a segment boundary.
+
+## Capture and playback
+
+- **Settings → Storage** shows the current folder. Clips and screenshots go to `%LOCALAPPDATA%
+sclip\media`. Existing installations can continue using their original media folder. Short and long saves are labeled in the library.
+- Audio is the default Windows playback device's system mix, saved as stereo AAC. If you switch the default device, restart the replay buffer. Microphone input is outside this build.
+- H.264 is the default. The library shows a still frame from each clip. The editor prepares a low-resolution WebM preview for HEVC and AV1 playback. Select **Make H.264 copy** for a shareable MP4, including while the replay buffer is running. A new MP4 appears in Clips and the original remains available. Trim exports also use H.264. Both export options cap output at 1080p and 60 FPS for wider playback support. Legacy silent clips can still be played and trimmed.
+
+## Recording and general settings
+
+- Select **Record** in the top bar to start a manual recording. Select **Stop recording** to save an MP4. Recording uses the same encoder and audio source as the replay buffer, and can include up to one two-second segment before you pressed Record. If the replay buffer was already running, it restarts after the recording is saved and needs time to refill.
+- **Settings → General → Browse** changes the folder used for new clips, recordings, screenshots, and exports. Existing files stay where they are and remain visible in the library. Use **Add older folder** to include a save folder from an earlier release.
+- **Settings → General** also controls starting the replay buffer on launch, launching rsclip at Windows sign-in, and playing distinct sounds after clip and screenshot saves. The Windows sign-in toggle is off until enabled. rsclip restores a saved sign-in preference when it first opens after reinstalling.
+
+## Windows installers
+
+On a Windows machine with Tauri's packaging prerequisites, run:
+
+```powershell
+pnpm dlx @tauri-apps/cli@2 build --bundles nsis,msi
+```
+
+The NSIS setup executable and WiX MSI are written to `target/release/bundle`. Artwork for setup and uninstall is in `installer/`. FFmpeg is still required on PATH for capture.
+
+### Automatic GitHub releases
+
+Push the project to a GitHub repository with Actions enabled. A push to `main` runs the Windows release workflow for a new version. For later releases, update the version in `Cargo.toml` and `tauri.conf.json`, run `cargo check` to refresh `Cargo.lock`, then commit and push all three files. After tests and both installer builds pass, the workflow creates the matching `vMAJOR.MINOR.PATCH` tag and attaches the NSIS and MSI installers to the GitHub release. You can rerun a failed workflow from the Actions tab.

@@ -1,0 +1,114 @@
+name: Windows release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: rsclip-windows-release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    if: github.ref == 'refs/heads/main'
+    runs-on: windows-2022
+    timeout-minutes: 45
+    permissions:
+      contents: write
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Check release version
+        id: version
+        run: |
+          $version = (Get-Content -Raw tauri.conf.json | ConvertFrom-Json).version
+          if ($version -notmatch '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$') {
+            throw 'Use a stable major.minor.patch version in tauri.conf.json.'
+          }
+          $metadataJson = cargo metadata --locked --no-deps --format-version 1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $metadata = $metadataJson | ConvertFrom-Json
+          $package = $metadata.packages | Where-Object name -eq 'rsclip'
+          if ($package.version -ne $version) {
+            throw 'The versions in Cargo.toml and tauri.conf.json must match.'
+          }
+
+          $tag = "v$version"
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "tag=$tag" >> $env:GITHUB_OUTPUT
+          $existing = git tag --list $tag
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if ($existing -and (git rev-list -n 1 "refs/tags/$tag") -ne $env:GITHUB_SHA) {
+            Write-Output "$tag already belongs to an earlier commit. Bump the version to release these changes."
+            "build=false" >> $env:GITHUB_OUTPUT
+          } else {
+            "build=true" >> $env:GITHUB_OUTPUT
+          }
+
+      - uses: actions/setup-node@v5
+        if: steps.version.outputs.build == 'true'
+        with:
+          node-version: '22'
+
+      - uses: pnpm/action-setup@v4
+        if: steps.version.outputs.build == 'true'
+        with:
+          version: '10'
+
+      - name: Test
+        if: steps.version.outputs.build == 'true'
+        run: cargo test --locked --release
+
+      - name: Build NSIS and MSI
+        if: steps.version.outputs.build == 'true'
+        run: pnpm dlx @tauri-apps/cli@2.12.4 build --ci --bundles nsis,msi -- --locked
+
+      - name: Verify installers and publish release
+        if: steps.version.outputs.build == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          $setup = Get-Item -LiteralPath "target/release/bundle/nsis/rsclip_${env:VERSION}_x64-setup.exe"
+          $msi = Get-Item -LiteralPath "target/release/bundle/msi/rsclip_${env:VERSION}_x64_en-US.msi"
+          if ($setup.Length -le 0 -or $msi.Length -le 0) {
+            throw 'Both installers must be present before publishing.'
+          }
+
+          $existingTag = git tag --list $env:TAG
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if ($existingTag) {
+            $release = gh release view $env:TAG --json isDraft,assets
+            if ($LASTEXITCODE -eq 0) {
+              $release = $release | ConvertFrom-Json
+              if (!$release.isDraft) {
+                if ($setup.Name -notin $release.assets.name -or $msi.Name -notin $release.assets.name) {
+                  throw "$env:TAG is published but its installers are incomplete."
+                }
+                Write-Output "$env:TAG is already published with both installers."
+                exit 0
+              }
+              gh release upload $env:TAG $setup.FullName $msi.FullName --clobber
+              if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+              gh release edit $env:TAG --draft=false
+              exit $LASTEXITCODE
+            }
+          }
+          if (!$existingTag) {
+            git tag $env:TAG $env:GITHUB_SHA
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            git push origin "refs/tags/$env:TAG"
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+          gh release create $env:TAG $setup.FullName $msi.FullName --verify-tag --title "rsclip $env:TAG" --generate-notes
+          exit $LASTEXITCODE

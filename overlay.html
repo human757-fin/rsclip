@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>rsclip capture feedback</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 2px; background: transparent; color: #e6e8ed; font: 14px "Segoe UI", sans-serif; }
+  .card { border: 1px solid #353942; border-radius: 10px; background: #1b1d21; padding: 10px; }
+  header { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+  header span { background: #609dfc; width: 8px; height: 8px; border-radius: 50%; }
+  header small { margin-left: auto; color: #a2a8b2; }
+  img { display: block; width: 100%; height: 170px; border-radius: 6px; background: #10141b; object-fit: contain; }
+  img[hidden] { display: none; }
+</style>
+</head>
+<body>
+  <section class="card">
+    <header><span></span><strong id="title"></strong><small>rsclip</small></header>
+    <img id="frame" alt="" hidden>
+  </section>
+  <script>
+    window.renderFeedback = () => {
+      const feedback = window.feedback;
+      if (!feedback) return;
+      document.getElementById("title").textContent = feedback.title;
+      const image = document.getElementById("frame");
+      image.hidden = !feedback.image;
+      if (feedback.image) image.src = feedback.image;
+      else image.removeAttribute("src");
+    };
+    window.renderFeedback();
+  </script>
+</body>
+</html>
