@@ -180,6 +180,7 @@ async function refresh() {
   const response = await fetch("/api");
   const firstState = !state;
   state = await response.json();
+  if (!settingsPage.hidden && !$("audio-options").hidden) renderMixer();
   if (firstState && videoSettingsVisible()) loadCaptureSettings();
   $("toggle").disabled = state.recording;
   $("record").classList.toggle("recording", state.recording);
@@ -402,18 +403,78 @@ function leaveVideoSettings() {
   clearMonitorPreview("Choose a monitor to preview.");
 }
 
-function selectSettingsSection(video) {
-  if (video === !$("video-options").hidden) return;
-  $("settings-video").setAttribute("aria-pressed", video);
-  $("settings-general").setAttribute("aria-pressed", !video);
-  $("video-options").hidden = !video;
-  $("general-options").hidden = video;
-  if (video && state) loadCaptureSettings();
-  else leaveVideoSettings();
+function selectSettingsSection(section) {
+  const wasVideo = videoSettingsVisible();
+  for (const tab of ["general", "video", "audio"]) {
+    $(`settings-${tab}`).setAttribute("aria-pressed", tab === section);
+    $(`${tab}-options`).hidden = tab !== section;
+  }
+  if (section === "video" && !wasVideo && state) loadCaptureSettings();
+  if (wasVideo && section !== "video") leaveVideoSettings();
+  if (section === "audio" && state) renderMixer();
 }
 
-$("settings-video").onclick = () => selectSettingsSection(true);
-$("settings-general").onclick = () => selectSettingsSection(false);
+for (const section of ["general", "video", "audio"]) {
+  $(`settings-${section}`).onclick = () => selectSettingsSection(section);
+}
+
+let mixerSources = "";
+let mixerPresets = "";
+function renderMixer() {
+  const config = state.mixer;
+  if (!config) return;
+  $("mixer-mic").checked = config.microphone;
+  $("mixer-apps").checked = config.perApp;
+  $("mixer-mic").disabled = $("mixer-apps").disabled = false;
+  const presets = Object.keys(config.presets);
+  const presetKey = JSON.stringify(presets);
+  if (presetKey !== mixerPresets) {
+    mixerPresets = presetKey;
+    const selected = $("mixer-presets").value;
+    $("mixer-presets").replaceChildren(...presets.map(name => new Option(name, name)));
+    if (presets.includes(selected)) $("mixer-presets").value = selected;
+    $("mixer-load").disabled = !presets.length;
+  }
+  const sources = Object.entries(state.audioSources);
+  const sourceKey = JSON.stringify(sources);
+  if (sourceKey !== mixerSources) {
+    mixerSources = sourceKey;
+    $("mixer-channels").replaceChildren(...sources.map(([id, name]) => {
+      const label = element("label", "", "mixer-channel");
+      const range = element("input");
+      range.type = "range";
+      range.min = 0;
+      range.max = 200;
+      range.id = `gain-${id}`;
+      const readout = element("output");
+      readout.id = `gain-value-${id}`;
+      range.oninput = () => { readout.textContent = `${range.value}%`; };
+      range.onchange = async () => {
+        if (!await act("mixer", { action: "gain", source: id, gain: range.valueAsNumber })) {
+          range.value = state.mixer.gains[id] ?? 100;
+          range.oninput();
+        }
+      };
+      label.append(element("span", name), range, readout);
+      return label;
+    }));
+  }
+  for (const [id] of sources) {
+    const range = $(`gain-${id}`);
+    if (document.activeElement !== range) {
+      range.value = config.gains[id] ?? 100;
+      range.oninput();
+    }
+  }
+}
+
+for (const [id, action] of [["mixer-mic", "microphone"], ["mixer-apps", "perApp"]]) {
+  $(id).onchange = async () => {
+    if (!await act("mixer", { action, enabled: $(id).checked })) renderMixer();
+  };
+}
+$("mixer-save").onclick = () => act("mixer", { action: "savePreset", name: $("mixer-name").value });
+$("mixer-load").onclick = () => act("mixer", { action: "loadPreset", name: $("mixer-presets").value });
 $("browse-media").onclick = () => act("browse-media");
 $("add-library-folder").onclick = () => act("add-library-folder");
 $("record").onclick = () => act("record");
@@ -436,7 +497,7 @@ function showSettings(open) {
   if (open) {
     goBack();
     $("library").hidden = true;
-    selectSettingsSection(false);
+    selectSettingsSection("general");
     $("settings-title").focus();
   } else {
     leaveVideoSettings();

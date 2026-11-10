@@ -282,17 +282,18 @@ fn handle(
       let result = if path == "/api/hotkey" {
         hotkeys::request(shortcuts, body)
       } else if matches!(path, "/api/trim" | "/api/compatible") {
-        let (folder, source) = {
+        let (folder, source, mix) = {
           let recorder = recorder.lock().unwrap();
           (
             recorder.media.clone(),
             recorder.media_source(body["name"].as_str().unwrap_or_default()),
+            recorder.mixer_settings(),
           )
         };
         let _job = playback::VIDEO_JOBS.lock().unwrap();
         source
           .ok_or_else(|| anyhow::anyhow!("Clip not found."))
-          .and_then(|source| Recorder::export(&folder, &source, &body, path == "/api/trim"))
+          .and_then(|source| Recorder::export(&folder, &source, &body, path == "/api/trim", &mix))
           .map(|message| {
             let mut recorder = recorder.lock().unwrap();
             recorder.notice = message.into();

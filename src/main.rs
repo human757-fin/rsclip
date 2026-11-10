@@ -1,8 +1,10 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod app_audio;
 mod audio;
 mod desktop;
 mod hotkeys;
+mod mixer;
 mod monitors;
 mod overlay;
 mod performance;

@@ -53,3 +53,9 @@ The NSIS setup executable and WiX MSI are written to `target/release/bundle`. Ar
 ### Automatic GitHub releases
 
 Push the project to a GitHub repository with Actions enabled. A push to `main` runs the Windows release workflow for a new version. For later releases, update the version in `Cargo.toml` and `tauri.conf.json`, run `cargo check` to refresh `Cargo.lock`, then commit and push all three files. After tests and both installer builds pass, the workflow creates the matching `vMAJOR.MINOR.PATCH` tag and attaches the NSIS and MSI installers to the GitHub release. You can rerun a failed workflow from the Actions tab.
+
+### Audio channels and presets
+
+In **Settings → Audio**, turn on **Microphone** to capture the default Windows input. Separate app tracks use Windows process loopback for discoverable playback sessions. Apps are grouped by executable, and new playback sessions are detected while the buffer runs. Desktop audio is used when separate app capture is off or no app stream is available. Process loopback requires Windows build 20348 or newer.
+
+Saved clips and recordings include a stereo playback mix and the isolated tracks that contributed audio. Adjust source volumes and save named presets in Audio settings. H.264 exports use the current volumes to combine isolated tracks into one stereo track. Older clips with a single audio track keep that mix. Keep both `ffmpeg` and `ffprobe` on PATH.

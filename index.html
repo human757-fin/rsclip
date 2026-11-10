@@ -43,6 +43,7 @@
     <nav class="settings-tabs" aria-label="Settings sections">
       <button id="settings-general" type="button" aria-pressed="true">General</button>
       <button id="settings-video" type="button" aria-pressed="false">Video</button>
+      <button id="settings-audio" type="button" aria-pressed="false">Audio</button>
     </nav>
     <section id="video-options" class="settings-section" aria-labelledby="capture-title" hidden>
       <h2 id="capture-title">Capture</h2>
@@ -116,6 +117,31 @@
           </label>
         </section>
       </div>
+    </div>
+    <div id="audio-options" hidden>
+      <div class="settings-cards">
+        <section class="settings-section preference-card" aria-labelledby="audio-capture-title">
+          <header class="preference-heading"><h2 id="audio-capture-title">Capture sources</h2></header>
+          <label class="preference">
+            <span class="preference-copy"><strong>Microphone</strong><small>Capture the default Windows input device.</small></span>
+            <span class="switch"><input id="mixer-mic" type="checkbox" role="switch" disabled><span class="switch-track" aria-hidden="true"></span></span>
+          </label>
+          <label class="preference">
+            <span class="preference-copy"><strong>Separate app tracks</strong><small>Detect apps as they play audio. Use desktop audio when no app stream is available.</small></span>
+            <span class="switch"><input id="mixer-apps" type="checkbox" role="switch" disabled><span class="switch-track" aria-hidden="true"></span></span>
+          </label>
+        </section>
+        <section class="settings-section" aria-labelledby="audio-presets-title">
+          <h2 id="audio-presets-title">Volume presets</h2>
+          <div class="storage-row"><input id="mixer-name" maxlength="48" placeholder="Preset name" aria-label="Preset name"><button id="mixer-save" type="button">Save</button></div>
+          <div class="storage-row"><select id="mixer-presets" aria-label="Saved volume presets"></select><button id="mixer-load" type="button">Load</button></div>
+          <p>Exports mix all isolated tracks into one stereo track using the current volumes.</p>
+        </section>
+      </div>
+      <section class="settings-section" aria-labelledby="audio-mixer-title">
+        <h2 id="audio-mixer-title">Channel volumes</h2>
+        <div id="mixer-channels"></div>
+      </section>
     </div>
   </section>
   <section id="editor" hidden>

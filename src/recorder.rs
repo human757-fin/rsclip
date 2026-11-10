@@ -1,25 +1,26 @@
 use crate::{
   audio, desktop,
+  mixer::{self, JoinTracks, MixerSettings, Sources},
   overlay::{Feedback, OverlayEvent},
-  settings::{Codec, Encoding, General, Settings},
+  settings::{self, Codec, Encoding, General, Settings},
 };
 use anyhow::{bail, Context, Result};
 use chrono::Local;
 use serde_json::{json, Value};
 use std::{
-  collections::HashMap,
+  collections::{BTreeMap, HashMap},
   env,
   fs::{self, File},
   os::windows::process::CommandExt,
   path::{Path, PathBuf},
   process::{Child, Command, Stdio},
-  sync::{atomic::Ordering, mpsc},
+  sync::{atomic::Ordering, mpsc, Arc, Mutex},
   thread,
   time::{Duration, Instant},
 };
 use uuid::Uuid;
 
-const SEGMENT: u64 = 2;
+const SEGMENT: u64 = mixer::SEGMENT_SECONDS as u64;
 
 pub struct Recorder {
   data: PathBuf,
@@ -31,6 +32,8 @@ pub struct Recorder {
   ffmpeg: bool,
   settings: Settings,
   general: General,
+  mixer: Arc<Mutex<MixerSettings>>,
+  sources: Sources,
   launch_on_login: bool,
   recording: Option<Recording>,
   feedback: mpsc::Sender<OverlayEvent>,
@@ -57,6 +60,13 @@ pub fn ffmpeg() -> Command {
     .creation_flags(0x0800_0000)
     .args(["-hide_banner", "-loglevel", "error"]);
   command
+}
+
+fn default_audio_sources() -> Sources {
+  Arc::new(Mutex::new(BTreeMap::from([
+    ("desktop".into(), "Desktop audio fallback".into()),
+    ("microphone".into(), "Microphone".into()),
+  ])))
 }
 
 fn snapshot_command(output: u64, filters: &str) -> Command {
@@ -141,6 +151,9 @@ impl Recorder {
     } else {
       notice
     };
+    let mixer: MixerSettings = settings::load_json(&data.join("audio.json")).unwrap_or_default();
+    let sources = default_audio_sources();
+    sources.lock().unwrap().extend(mixer.names.clone());
     Ok(Self {
       data,
       media,
@@ -154,6 +167,8 @@ impl Recorder {
         .is_ok_and(|result| result.status.success()),
       settings,
       general,
+      mixer: Arc::new(Mutex::new(mixer)),
+      sources,
       launch_on_login,
       recording: None,
       feedback,
@@ -258,6 +273,21 @@ impl Recorder {
     Ok(())
   }
 
+  pub fn mixer_settings(&self) -> MixerSettings {
+    self.mixer.lock().unwrap().clone()
+  }
+
+  fn update_mixer(&mut self, body: &Value) -> Result<()> {
+    let mut config = self.mixer_settings();
+    config.apply(body)?;
+    config.names = self.sources.lock().unwrap().clone();
+    settings::save_json(&self.data.join("audio.json"), &config)
+      .context("Could not save audio settings")?;
+    *self.mixer.lock().unwrap() = config;
+    self.notice = "Audio settings saved".into();
+    Ok(())
+  }
+
   fn active(&self) -> bool {
     self.child.is_some()
   }
@@ -274,10 +304,9 @@ impl Recorder {
     let buffer = self.data.join(format!("buffer-{}", Uuid::new_v4()));
     fs::create_dir(&buffer)?;
     self.buffer = Some(buffer.clone());
-    let audio = audio::open()?;
+    let audio = audio::open(buffer.clone(), self.mixer.clone(), self.sources.clone())?;
     let encoding = self.settings.encoding;
     let capture = encoding.source();
-    let format = audio.format;
     let mut command = ffmpeg();
     command.args([
       "-nostdin",
@@ -288,11 +317,11 @@ impl Recorder {
       "-analyzeduration",
       "1",
       "-f",
-      format.sample,
+      "s16le",
       "-ar",
-      &format.rate.to_string(),
+      &mixer::RATE.to_string(),
       "-ac",
-      &format.channels.to_string(),
+      &mixer::CHANNELS.to_string(),
       "-i",
       "pipe:0",
       "-f",
@@ -439,6 +468,12 @@ impl Recorder {
       {
         break;
       }
+      if let (Some(buffer), Some(index)) = (&self.buffer, mixer::part_index(&path)) {
+        let folder = mixer::segment_folder(buffer, index);
+        if folder.is_dir() {
+          fs::remove_dir_all(folder)?;
+        }
+      }
       fs::remove_file(path)?;
     }
     Ok(())
@@ -537,6 +572,7 @@ impl Recorder {
       playlist.push_str(&format!("file '{name}'\n"));
     }
     fs::write(buffer.join("save.ffconcat"), playlist)?;
+    let tracks = JoinTracks::prepare(buffer, parts, &self.sources)?;
     let mut command = ffmpeg();
     command.current_dir(buffer).args([
       "-nostdin",
@@ -546,6 +582,21 @@ impl Recorder {
       "1",
       "-i",
       "save.ffconcat",
+    ]);
+    for (_, _, path) in &tracks.inputs {
+      command
+        .args([
+          "-f",
+          "s16le",
+          "-ar",
+          &mixer::RATE.to_string(),
+          "-ac",
+          "2",
+          "-i",
+        ])
+        .arg(path);
+    }
+    command.args([
       "-map",
       "0",
       "-c",
@@ -555,6 +606,24 @@ impl Recorder {
       "-movflags",
       "+faststart",
     ]);
+    for (index, (id, name, _)) in tracks.inputs.iter().enumerate() {
+      let track = index + 1;
+      command.args([
+        "-map",
+        &format!("{track}:a:0"),
+        &format!("-c:a:{track}"),
+        "aac",
+        &format!("-b:a:{track}"),
+        "128k",
+        &format!("-disposition:a:{track}"),
+        "0",
+        &format!("-metadata:s:a:{track}"),
+        &format!("handler_name=rsclip:{id}:{name}"),
+      ]);
+    }
+    if !tracks.inputs.is_empty() {
+      command.args(["-shortest", "-disposition:a:0", "default"]);
+    }
     Self::publish(&self.media, "mp4", label, command)
   }
 
@@ -640,7 +709,13 @@ impl Recorder {
     Ok(())
   }
 
-  pub fn export(media: &Path, source: &Path, body: &Value, trim: bool) -> Result<&'static str> {
+  pub fn export(
+    media: &Path,
+    source: &Path,
+    body: &Value,
+    trim: bool,
+    mix: &MixerSettings,
+  ) -> Result<&'static str> {
     if source
       .extension()
       .is_none_or(|extension| extension != "mp4")
@@ -668,8 +743,33 @@ impl Recorder {
     if let Some(duration) = span {
       command.args(["-t", &duration.to_string()]);
     }
+    let probe = Command::new("ffprobe")
+      .creation_flags(0x0800_0000)
+      .args([
+        "-v",
+        "error",
+        "-select_streams",
+        "a",
+        "-show_entries",
+        "stream_tags=handler_name",
+        "-of",
+        "json",
+      ])
+      .arg(source)
+      .output()
+      .ok()
+      .filter(|output| output.status.success())
+      .and_then(|output| serde_json::from_slice::<Value>(&output.stdout).ok());
+    command.args(["-map", "0:v:0"]);
+    if let Some(graph) = probe
+      .as_ref()
+      .and_then(|probe| mixer::export_filter(probe, mix))
+    {
+      command.args(["-filter_complex", &graph, "-map", "[audio]"]);
+    } else {
+      command.args(["-map", "0:a:0?"]);
+    }
     command.args([
-      "-map", "0:v:0", "-map", "0:a:0?",
       "-vf", r"fps=min(source_fps\,60),scale=w=min(1920\,iw):h=min(1080\,ih):force_original_aspect_ratio=decrease:force_divisible_by=2,format=yuv420p",
       "-c:v", "h264_nvenc", "-preset", "p1", "-profile:v", "high", "-b:v", "12M",
       "-c:a", "aac", "-b:a", "160k", "-ac", "2", "-ar", "48000", "-movflags", "+faststart",
@@ -746,6 +846,7 @@ impl Recorder {
       "toggle" => self.start()?,
       "record" => self.toggle_recording()?,
       "general" => self.update_general(body)?,
+      "mixer" => self.update_mixer(body)?,
       "save" => self.save(false)?,
       "save_long" => self.save(true)?,
       "screenshot" => self.screenshot()?,
@@ -758,6 +859,7 @@ impl Recorder {
   pub fn state(&self) -> Value {
     json!({
       "active": self.active(), "recording": self.recording.is_some(), "settings": self.settings, "error": self.error,
+      "mixer": self.mixer_settings(), "audioSources": *self.sources.lock().unwrap(),
       "general": { "autoBuffer": self.general.auto_buffer, "startHidden": self.general.start_hidden, "saveSounds": self.general.save_sounds, "captureOverlay": self.general.capture_overlay, "launchOnLogin": self.launch_on_login },
       "notice": self.notice, "hotkeyError": self.hotkey_error, "hotkeys": self.hotkeys, "available": self.ffmpeg, "mediaFolder": self.media.to_string_lossy()
     })
@@ -875,6 +977,8 @@ mod tests {
       ffmpeg: false,
       settings: Settings::default(),
       general: General::default(),
+      mixer: Arc::new(Mutex::new(MixerSettings::default())),
+      sources: default_audio_sources(),
       launch_on_login: false,
       recording: None,
       feedback,

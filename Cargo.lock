@@ -2463,7 +2463,7 @@ dependencies = [
 
 [[package]]
 name = "rsclip"
-version = "0.3.4"
+version = "0.3.5"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -2477,6 +2477,7 @@ dependencies = [
  "tauri-build",
  "uuid",
  "windows 0.58.0",
+ "windows-core 0.58.0",
  "windows-registry",
 ]
 

@@ -123,7 +123,7 @@ impl General {
   }
 }
 
-fn load_json<T: serde::de::DeserializeOwned + Default>(path: &Path) -> Result<T> {
+pub(crate) fn load_json<T: serde::de::DeserializeOwned + Default>(path: &Path) -> Result<T> {
   match fs::read(path) {
     Ok(bytes) => Ok(serde_json::from_slice(&bytes)?),
     Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(T::default()),
@@ -131,7 +131,7 @@ fn load_json<T: serde::de::DeserializeOwned + Default>(path: &Path) -> Result<T>
   }
 }
 
-fn save_json(path: &Path, value: &impl Serialize) -> Result<()> {
+pub(crate) fn save_json(path: &Path, value: &impl Serialize) -> Result<()> {
   let temp = path.with_extension(format!("{}.tmp", Uuid::new_v4()));
   let result =
     fs::write(&temp, serde_json::to_vec_pretty(value)?).and_then(|()| fs::rename(&temp, path));

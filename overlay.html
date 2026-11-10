@@ -5,8 +5,8 @@
 <title>rsclip capture feedback</title>
 <style>
   * { box-sizing: border-box; }
-  body { margin: 0; padding: 2px; background: transparent; color: #e6e8ed; font: 14px "Segoe UI", sans-serif; }
-  .card { border: 1px solid #353942; border-radius: 10px; background: #1b1d21; padding: 10px; }
+  body { margin: 0; overflow: hidden; background: transparent; color: #e6e8ed; font: 14px "Segoe UI", sans-serif; }
+  .card { min-height: 100vh; border-bottom: 2px solid #609dfc; background: #1b1d21; padding: 12px; }
   header { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
   header span { background: #609dfc; width: 8px; height: 8px; border-radius: 50%; }
   header small { margin-left: auto; color: #a2a8b2; }
@@ -20,9 +20,19 @@
     <img id="frame" alt="" hidden>
   </section>
   <script>
+    let shownId;
     window.renderFeedback = () => {
       const feedback = window.feedback;
       if (!feedback) return;
+      if (shownId !== feedback.id) {
+        shownId = feedback.id;
+        if (!matchMedia("(prefers-reduced-motion: reduce)").matches) {
+          const card = document.querySelector(".card");
+          for (const animation of card.getAnimations()) animation.cancel();
+          card.animate([{ transform: "translateY(-100%)" }, { transform: "translateY(0)" }],
+            { duration: 260, easing: "cubic-bezier(.2,.8,.2,1)" });
+        }
+      }
       document.getElementById("title").textContent = feedback.title;
       const image = document.getElementById("frame");
       image.hidden = !feedback.image;

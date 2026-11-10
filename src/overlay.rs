@@ -88,10 +88,9 @@ pub fn setup(app: &AppHandle, url: tauri::Url, events: mpsc::Receiver<OverlayEve
         if let Ok(Some(monitor)) = window.primary_monitor() {
           if let Ok(size) = window.outer_size() {
             let area = monitor.work_area();
-            let margin = (18.0 * monitor.scale_factor()).round() as i32;
             let _ = window.set_position(PhysicalPosition::new(
-              area.position.x + area.size.width as i32 - size.width as i32 - margin,
-              area.position.y + area.size.height as i32 - size.height as i32 - margin,
+              area.position.x + (area.size.width as i32 - size.width as i32) / 2,
+              area.position.y,
             ));
           }
         }
