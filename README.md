@@ -68,3 +68,8 @@ When FFmpeg is missing, rsclip downloads the Gyan essentials Windows build over 
 At launch, rsclip checks the latest stable GitHub Release from `human757-fin/rsclip`. A newer x64 NSIS installer downloads in the background and is checked against GitHub's SHA256 asset digest. General / Software offers Check for updates and Install update and quit. Stop manual recording before installing, then reopen rsclip afterward. Network failures leave the installed app usable. Updates require a public repository with a published NSIS asset and GitHub digest; no GitHub credentials are stored.
 
 Global shortcuts are suspended while the shortcut editor listens. Escape, closing the menu, or losing focus restores them; a timeout also restores them if the editor disconnects.
+
+
+### NVIDIA driver API compatibility (0.3.9)
+
+Setup now probes H.264 NVENC using one synthetic 64x64 frame. When FFmpeg reports an unsupported NVENC API version, rsclip downloads Gyan FFmpeg 8.0.1 full from its versioned GitHub release and checks the pinned SHA256 from Microsoft's winget-pkgs manifest. It then repeats feature and hardware encoding checks. This replaces the app-managed FFmpeg only; a PATH installation is unchanged. The compatibility pairing still needs a live test on the affected GPU. Other GPU failures are reported directly. On existing installs, stop capture and use General / Software / Retry FFmpeg setup, or restart rsclip.

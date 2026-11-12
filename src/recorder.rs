@@ -193,7 +193,7 @@ impl Recorder {
       .arg("-version")
       .output()
       .is_ok_and(|result| result.status.success());
-    if was_missing && self.ffmpeg { self.error.clear(); }
+    if self.ffmpeg && (was_missing || self.error.contains("nvenc API version")) { self.error.clear(); }
     self.start_automatically();
   }
 

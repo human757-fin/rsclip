@@ -8,8 +8,14 @@ New-Item -ItemType Directory -Path $stage | Out-Null
 try {
   $zip = Join-Path $stage 'ffmpeg.zip'
   $url = 'https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip'
+  if ($Compatibility) {
+    # Version and SHA256 from Microsoft's winget-pkgs Gyan.FFmpeg 8.0.1 manifest.
+    $url = 'https://github.com/GyanD/codexffmpeg/releases/download/8.0.1/ffmpeg-8.0.1-full_build.zip'
+    $expected = '467CDE100A47ED4B03A897988AEB4A296890C1E2B2D2864204657D002BC5FB90'
+  } else {
   Invoke-WebRequest -UseBasicParsing -Uri ($url + '.sha256') -OutFile (Join-Path $stage 'checksum') -TimeoutSec 30
   $expected = ((Get-Content -Raw (Join-Path $stage 'checksum')).Trim() -split '\s+')[0]
+  }
   if ($expected -notmatch '^[a-fA-F0-9]{64}$') { throw 'Invalid FFmpeg checksum.' }
   Invoke-WebRequest -UseBasicParsing -Uri $url -OutFile $zip -TimeoutSec 300
   if ((Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash -ne $expected) { throw 'FFmpeg checksum mismatch.' }

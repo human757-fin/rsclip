@@ -66,11 +66,36 @@ fn validate_ffmpeg() -> Result<()> {
   }
   Ok(())
 }
+fn nvenc_probe() -> Result<()> {
+  let output = Command::new(executable("ffmpeg")).creation_flags(0x0800_0000)
+    .args(["-hide_banner", "-loglevel", "error", "-nostdin", "-f", "lavfi", "-i",
+      "color=size=64x64:rate=1", "-frames:v", "1", "-c:v", "h264_nvenc", "-f", "null", "-"])
+    .output().context("Could not test NVIDIA encoding")?;
+  if !output.status.success() {
+    bail!("{}", String::from_utf8_lossy(&output.stderr).trim());
+  }
+  Ok(())
+}
+fn driver_api_mismatch(error: &str) -> bool {
+  error.contains("Driver does not support the required nvenc API version")
+}
 pub fn ensure_ffmpeg() -> Result<()> {
-  if validate_ffmpeg().is_ok() { return Ok(()); }
-  status().lock().unwrap()["ffmpeg"] = json!("Downloading and verifying FFmpeg. This can take several minutes…");
-  powershell(include_str!("../installer/install-ffmpeg.ps1"))?;
-  validate_ffmpeg().context("FFmpeg was downloaded but could not run")
+  if validate_ffmpeg().is_err() {
+    status().lock().unwrap()["ffmpeg"] = json!("Downloading and verifying FFmpeg. This can take several minutes.");
+    powershell(include_str!("../installer/install-ffmpeg.ps1"))?;
+    validate_ffmpeg().context("FFmpeg was downloaded but could not run")?;
+  }
+  if let Err(error) = nvenc_probe() {
+    if !driver_api_mismatch(&error.to_string()) {
+      return Err(error.context("FFmpeg is installed, but NVIDIA encoding failed. Check GPU support and the NVIDIA driver"));
+    }
+    status().lock().unwrap()["ffmpeg"] = json!("NVIDIA driver API mismatch. Downloading the compatibility FFmpeg build.");
+    let script = format!("$Compatibility = $true\n{}", include_str!("../installer/install-ffmpeg.ps1"));
+    powershell(&script).context("Could not install compatibility FFmpeg")?;
+    validate_ffmpeg()?;
+    nvenc_probe().context("The compatibility build still cannot encode. An NVIDIA driver update may be required")?;
+  }
+  Ok(())
 }
 pub fn setup_ffmpeg(recorder: &Mutex<crate::recorder::Recorder>) {
   let Ok(_job) = FFMPEG_JOB.try_lock() else { return };
@@ -128,4 +153,14 @@ pub fn install() -> Result<()> {
 pub fn start(recorder: std::sync::Arc<Mutex<crate::recorder::Recorder>>) {
   std::thread::spawn(move || setup_ffmpeg(&recorder));
   std::thread::spawn(check_update);
+}
+
+#[cfg(test)]
+mod tests {
+  #[test]
+  fn driver_mismatch_is_distinct_from_other_encoder_errors() {
+    assert!(super::driver_api_mismatch("[h264_nvenc] Driver does not support the required nvenc API version. Required: 13.1 Found: 13.0"));
+    assert!(!super::driver_api_mismatch("Cannot load nvcuda.dll"));
+    assert!(!super::driver_api_mismatch("No capable devices found"));
+  }
 }
