@@ -59,3 +59,12 @@ Push the project to a GitHub repository with Actions enabled. A push to `main` r
 In **Settings → Audio**, turn on **Microphone** to capture the default Windows input. Separate app tracks use Windows process loopback for discoverable playback sessions. Apps are grouped by executable, and new playback sessions are detected while the buffer runs. Desktop audio is used when separate app capture is off or no app stream is available. Process loopback requires Windows build 20348 or newer.
 
 Saved clips and recordings include a stereo playback mix and the isolated tracks that contributed audio. Adjust source volumes and save named presets in Audio settings. H.264 exports use the current volumes to combine isolated tracks into one stereo track. Older clips with a single audio track keep that mix. Keep both `ffmpeg` and `ffprobe` on PATH.
+
+
+### Automatic setup and updates (0.3.7)
+
+When FFmpeg is missing, rsclip downloads the Gyan essentials Windows build over HTTPS, verifies its publisher SHA256 checksum, and installs ffmpeg/ffprobe under `%LOCALAPPDATA%\rsclip\tools\ffmpeg`. No administrator rights or PATH changes are needed. The download runs in the background. Desktop capture and NVENC support are checked before installation; GPU compatibility checks still apply. The replay buffer starts when ready if enabled.
+
+At launch, rsclip checks the latest stable GitHub Release from `human757-fin/rsclip`. A newer x64 NSIS installer downloads in the background and is checked against GitHub's SHA256 asset digest. General / Software offers Check for updates and Install update and quit. Stop manual recording before installing, then reopen rsclip afterward. Network failures leave the installed app usable. Updates require a public repository with a published NSIS asset and GitHub digest; no GitHub credentials are stored.
+
+Global shortcuts are suspended while the shortcut editor listens. Escape, closing the menu, or losing focus restores them; a timeout also restores them if the editor disconnects.

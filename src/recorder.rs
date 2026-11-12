@@ -55,7 +55,7 @@ impl Recording {
 }
 
 pub fn ffmpeg() -> Command {
-  let mut command = Command::new("ffmpeg");
+  let mut command = Command::new(crate::maintenance::executable("ffmpeg"));
   command
     .creation_flags(0x0800_0000)
     .args(["-hide_banner", "-loglevel", "error"]);
@@ -185,6 +185,14 @@ impl Recorder {
 
   pub fn hotkey_path(&self) -> PathBuf {
     self.data.join("hotkeys.json")
+  }
+
+  pub fn refresh_ffmpeg(&mut self) {
+    self.ffmpeg = ffmpeg()
+      .arg("-version")
+      .output()
+      .is_ok_and(|result| result.status.success());
+    self.start_automatically();
   }
 
   pub fn starts_hidden(&self) -> bool {
@@ -743,7 +751,7 @@ impl Recorder {
     if let Some(duration) = span {
       command.args(["-t", &duration.to_string()]);
     }
-    let probe = Command::new("ffprobe")
+    let probe = Command::new(crate::maintenance::executable("ffprobe"))
       .creation_flags(0x0800_0000)
       .args([
         "-v",

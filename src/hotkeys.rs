@@ -228,10 +228,29 @@ pub fn monitor(recorder: Arc<Mutex<Recorder>>, commands: mpsc::Receiver<Command>
     recorder.start_automatically();
   }
   let mut next_tick = Instant::now();
+  let mut editing_until = None;
   loop {
     match commands.recv_timeout(Duration::from_millis(40)) {
       Ok(Command::Rebind { body, reply }) => {
-        let result = hotkeys.rebind(&path, body).map(|()| {
+        let result = if body["action"] == "editing" {
+          let editing = body["enabled"].as_bool().unwrap_or(false);
+          if editing {
+            for id in hotkeys.ids.iter_mut() {
+              if let Some(id) = id.take() {
+                unsafe {
+                  let _ = UnregisterHotKey(None, id);
+                }
+              }
+            }
+            editing_until = Some(Instant::now() + Duration::from_secs(15));
+          } else {
+            editing_until = Some(Instant::now());
+          }
+          Ok(())
+        } else {
+          hotkeys.rebind(&path, body)
+        }
+        .map(|()| {
           let mut recorder = recorder.lock().unwrap();
           recorder.hotkey_error.clear();
           hotkeys.publish(&mut recorder);
@@ -241,6 +260,16 @@ pub fn monitor(recorder: Arc<Mutex<Recorder>>, commands: mpsc::Receiver<Command>
       }
       Ok(Command::Stop) | Err(mpsc::RecvTimeoutError::Disconnected) => break,
       Err(mpsc::RecvTimeoutError::Timeout) => {}
+    }
+    if editing_until.is_some_and(|deadline| Instant::now() >= deadline) {
+      editing_until = None;
+      for (index, id) in hotkeys.ids.iter_mut().enumerate() {
+        if id.is_none() {
+          let next = index as i32 * 2 + 1;
+          *id = hotkeys.bindings[index].register(next).ok().map(|()| next);
+        }
+      }
+      hotkeys.publish(&mut recorder.lock().unwrap());
     }
     let mut message = MSG::default();
     while unsafe { PeekMessageW(&mut message, None, WM_HOTKEY, WM_HOTKEY, PM_REMOVE) }.as_bool() {

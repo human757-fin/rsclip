@@ -4,6 +4,7 @@ mod app_audio;
 mod audio;
 mod desktop;
 mod hotkeys;
+mod maintenance;
 mod mixer;
 mod monitors;
 mod overlay;
@@ -45,6 +46,7 @@ fn run() -> Result<()> {
   let recorder = Recorder::new(feedback)?;
   let start_hidden = recorder.starts_hidden();
   let recorder = Arc::new(Mutex::new(recorder));
+  maintenance::start(recorder.clone());
   let listener = TcpListener::bind(("127.0.0.1", 0))?;
   let host = listener.local_addr()?.to_string();
   let url: tauri::Url = format!("http://{host}/").parse()?;

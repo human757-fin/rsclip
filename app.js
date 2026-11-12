@@ -539,6 +539,7 @@ function renderKeybinds() {
 }
 
 function cancelKeyEdit() {
+  if (editingKey) setShortcutListening(false);
   editingKey = undefined;
   renderKeybinds();
   keyFeedback("");
@@ -548,12 +549,13 @@ for (const [action, label] of Object.entries(keyLabels)) {
   const row = element("div");
   const button = element("button", "Loading...", "keybind");
   button.disabled = true;
-  button.onclick = () => {
+  button.onclick = async () => {
     if (busy) return;
     if (editingKey === action) {
       cancelKeyEdit();
       return;
     }
+    if (!await setShortcutListening(true)) return;
     editingKey = action;
     keyFeedback("");
     renderKeybinds();
@@ -590,6 +592,7 @@ document.addEventListener("keydown", async event => {
   const action = editingKey;
   const changed = await act("hotkey", { action, binding: { key, modifiers } }, error => keyFeedback(error, true));
   if (changed && editingKey === action) {
+    await setShortcutListening(false);
     editingKey = undefined;
     renderKeybinds();
     keyFeedback("");
@@ -833,3 +836,40 @@ $("clip-preset-load").onclick = () => {
   renderClipMixer();
   $("clip-mix-status").textContent = "Preset loaded. Preview to hear it.";
 };
+
+async function setShortcutListening(enabled) {
+  try {
+    const response = await fetch("/api/hotkey", {
+      method: "POST", headers: {"Content-Type": "application/json", "X-Rsclip-Token": state.token},
+      body: JSON.stringify({action: "editing", enabled}), keepalive: true,
+    });
+    if (!response.ok) throw new Error((await response.json()).error);
+    return true;
+  } catch (error) { keyFeedback(error.message, true); return false; }
+}
+setInterval(() => { if (editingKey && keyPanel.open && document.hasFocus()) setShortcutListening(true); }, 5000);
+window.addEventListener("blur", cancelKeyEdit);
+
+async function refreshMaintenance() {
+  if (document.hidden) return;
+  try {
+    const response = await fetch("/api/maintenance");
+    if (!response.ok) return;
+    const status = await response.json();
+    $("maintenance-ffmpeg").textContent = status.ffmpeg;
+    $("maintenance-update").textContent = status.update;
+    $("update-install").hidden = !status.ready;
+  } catch (_) {}
+}
+async function maintenanceAction(action) {
+  try {
+    const response = await fetch("/api/" + action, {method:"POST", headers:{"Content-Type":"application/json", "X-Rsclip-Token":state.token}, body:"{}"});
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error);
+    refreshMaintenance();
+  } catch (error) { $("maintenance-update").textContent = error.message; }
+}
+$("update-check").onclick = () => maintenanceAction("update-check");
+$("update-install").onclick = () => maintenanceAction("update-install");
+setInterval(refreshMaintenance, 4000);
+refreshMaintenance();

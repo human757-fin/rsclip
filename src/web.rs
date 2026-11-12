@@ -127,6 +127,9 @@ fn handle(
         json!({ "error": format!("Could not list monitors. {error:#}") }),
       ),
     },
+    (Some("GET"), "/api/maintenance") => {
+      send_json(&mut stream, "200 OK", crate::maintenance::state())
+    }
     (Some("GET"), "/api/performance") => send_json(
       &mut stream,
       "200 OK",
@@ -150,8 +153,12 @@ fn handle(
     }
     (Some("GET"), path) if path.starts_with("/mix/") => {
       let name = path.trim_start_matches("/mix/");
-      if name.len() == 42 && name.ends_with(".mix.webm")
-        && name.bytes().all(|b| b.is_ascii_hexdigit() || b".mixweb".contains(&b)) {
+      if name.len() == 42
+        && name.ends_with(".mix.webm")
+        && name
+          .bytes()
+          .all(|b| b.is_ascii_hexdigit() || b".mixweb".contains(&b))
+      {
         let root = recorder.lock().unwrap().playback_cache();
         if let Ok(file) = File::open(root.join(name)) {
           return media(&mut stream, file, "video/webm", header("Range"));
@@ -249,6 +256,33 @@ fn handle(
           )
         }
       };
+      if path == "/api/update-check" {
+        thread::spawn(crate::maintenance::check_update);
+        return send_json(&mut stream, "200 OK", json!({}));
+      }
+      if path == "/api/update-install" {
+        let mut capture = recorder.lock().unwrap();
+        let state = capture.state();
+        if state["recording"].as_bool().unwrap_or(false) {
+          return send_json(
+            &mut stream,
+            "409 Conflict",
+            json!({"error":"Stop recording before installing an update."}),
+          );
+        }
+        return match crate::maintenance::install() {
+          Ok(()) => {
+            capture.shutdown();
+            app.exit(0);
+            send_json(&mut stream, "200 OK", json!({}))
+          }
+          Err(error) => send_json(
+            &mut stream,
+            "400 Bad Request",
+            json!({"error":format!("{error:#}")}),
+          ),
+        };
+      }
       if path == "/api/monitor-preview" {
         let Some(output) = body["output"].as_u64().filter(|&output| output <= 15) else {
           return send_json(
@@ -281,7 +315,8 @@ fn handle(
                 let name = playback::mixed_preview(&root, &source, &body)?;
                 Ok(json!({"proxy":true,"url":format!("/mix/{name}"),"channels":channels}))
               } else {
-                let proxy = playback::prepare(&root, &source, body["force"].as_bool().unwrap_or(false))?;
+                let proxy =
+                  playback::prepare(&root, &source, body["force"].as_bool().unwrap_or(false))?;
                 Ok(json!({"proxy":proxy,"channels":channels}))
               }
             })
@@ -311,7 +346,15 @@ fn handle(
         let _job = playback::VIDEO_JOBS.lock().unwrap();
         source
           .ok_or_else(|| anyhow::anyhow!("Clip not found."))
-          .and_then(|source| Recorder::export(&folder, &source, &body, path == "/api/trim", &mix.clip_mix(&body)?))
+          .and_then(|source| {
+            Recorder::export(
+              &folder,
+              &source,
+              &body,
+              path == "/api/trim",
+              &mix.clip_mix(&body)?,
+            )
+          })
           .map(|message| {
             let mut recorder = recorder.lock().unwrap();
             recorder.notice = message.into();
