@@ -148,6 +148,17 @@ fn handle(
         ),
       }
     }
+    (Some("GET"), path) if path.starts_with("/mix/") => {
+      let name = path.trim_start_matches("/mix/");
+      if name.len() == 42 && name.ends_with(".mix.webm")
+        && name.bytes().all(|b| b.is_ascii_hexdigit() || b".mixweb".contains(&b)) {
+        let root = recorder.lock().unwrap().playback_cache();
+        if let Ok(file) = File::open(root.join(name)) {
+          return media(&mut stream, file, "video/webm", header("Range"));
+        }
+      }
+      respond(&mut stream, "404 Not Found", "text/plain", b"Mix not found")
+    }
     (Some("GET"), path) if path.starts_with("/thumb/") || path.starts_with("/playback/") => {
       let thumbnail = path.starts_with("/thumb/");
       let name =
@@ -265,13 +276,20 @@ fn handle(
           source
             .ok_or_else(|| anyhow::anyhow!("Clip not found."))
             .and_then(|source| {
-              playback::prepare(&root, &source, body["force"].as_bool().unwrap_or(false))
+              let channels = playback::audio_channels(&playback::probe_audio(&source)?);
+              if body.get("gains").is_some() {
+                let name = playback::mixed_preview(&root, &source, &body)?;
+                Ok(json!({"proxy":true,"url":format!("/mix/{name}"),"channels":channels}))
+              } else {
+                let proxy = playback::prepare(&root, &source, body["force"].as_bool().unwrap_or(false))?;
+                Ok(json!({"proxy":proxy,"channels":channels}))
+              }
             })
         } else {
           Err(anyhow::anyhow!("Clip not found."))
         };
         return match result {
-          Ok(proxy) => send_json(&mut stream, "200 OK", json!({ "proxy": proxy })),
+          Ok(result) => send_json(&mut stream, "200 OK", result),
           Err(error) => send_json(
             &mut stream,
             "400 Bad Request",
@@ -293,7 +311,7 @@ fn handle(
         let _job = playback::VIDEO_JOBS.lock().unwrap();
         source
           .ok_or_else(|| anyhow::anyhow!("Clip not found."))
-          .and_then(|source| Recorder::export(&folder, &source, &body, path == "/api/trim", &mix))
+          .and_then(|source| Recorder::export(&folder, &source, &body, path == "/api/trim", &mix.clip_mix(&body)?))
           .map(|message| {
             let mut recorder = recorder.lock().unwrap();
             recorder.notice = message.into();

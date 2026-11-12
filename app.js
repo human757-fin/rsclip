@@ -4,6 +4,9 @@ const keyLabels = { save: "Save short clip", save_long: "Save long clip", toggle
 let state;
 let tab = "clips";
 let current;
+let clipGains = {};
+let clipChannels = [];
+let mixResume;
 let playbackVersion = 0;
 let previewRequested = false;
 let lastFiles = "";
@@ -124,6 +127,10 @@ function updateTimeline() {
 
 function openFile(file) {
   current = file;
+  clipGains = {};
+  clipChannels = [];
+  mixResume = undefined;
+  $("clip-mixer").hidden = true;
   playbackVersion++;
   previewRequested = false;
   playbackStatus("");
@@ -616,7 +623,7 @@ $("search").oninput = renderLibrary;
 $("toggle").onclick = () => act("toggle");
 $("capture").onclick = () => act(tab === "clips" ? "save" : "screenshot");
 $("capture-long").onclick = () => act("save_long");
-$("compatible").onclick = () => current && act("compatible", { name: current.name });
+$("compatible").onclick = () => current && act("compatible", { name: current.name, gains: clipGains });
 $("image").onload = () => { $("resolution").textContent = $("image").naturalWidth + " × " + $("image").naturalHeight; };
 let fullscreenBusy = false;
 let fullscreenVersion = 0;
@@ -665,7 +672,7 @@ function setPlaybackReady(ready) {
   for (const id of ["play", "seek", "start", "end", "export"]) $(id).disabled = !ready;
 }
 
-async function preparePlayback(file, force = false) {
+async function preparePlayback(file, force = false, gains) {
   if (force) previewRequested = true;
   const version = playbackVersion;
   video.pause();
@@ -675,13 +682,18 @@ async function preparePlayback(file, force = false) {
     const response = await fetch("/api/prepare-playback", {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-Rsclip-Token": state.token },
-      body: JSON.stringify({ name: file.name, force }),
+      body: JSON.stringify({ name: file.name, force, gains }),
     });
     const result = await response.json();
     if (!response.ok) throw new Error(result.error);
     if (version !== playbackVersion) return;
+    if (!clipChannels.length) {
+      clipChannels = result.channels || [];
+      clipGains = Object.fromEntries(clipChannels.map(([id]) => [id, 100]));
+      renderClipMixer();
+    }
     previewRequested = result.proxy;
-    video.src = result.proxy ? "/playback/" + encodeURIComponent(file.name) : path(file);
+    video.src = result.url || (result.proxy ? "/playback/" + encodeURIComponent(file.name) : path(file));
   } catch (error) {
     if (version === playbackVersion) playbackStatus(error.message);
   }
@@ -708,8 +720,14 @@ video.onloadedmetadata = () => {
   $("duration").textContent = timecode(video.duration);
   $("resolution").textContent = video.videoWidth + " x " + video.videoHeight + (previewRequested ? " preview" : "");
   for (const id of ["seek", "start", "end"]) $(id).max = video.duration;
-  $("start").value = 0;
-  $("end").value = video.duration;
+  $("start").value = mixResume?.start ?? 0;
+  $("end").value = mixResume?.end ?? video.duration;
+  if (mixResume) {
+    video.currentTime = Math.min(mixResume.time, video.duration);
+    video.play().catch(error => playbackStatus(error.message));
+    mixResume = undefined;
+    $("clip-mix-status").textContent = "Previewing your mix. Export uses these volumes.";
+  }
   $("ticks").replaceChildren(...[0, .25, .5, .75, 1].map(fraction => element("span", timecode(video.duration * fraction))));
   updateTimeline();
 };
@@ -739,7 +757,7 @@ for (const id of ["start", "end"]) {
   };
 }
 $("export").onclick = () => current && act("trim", { name: current.name,
-  start: Number($("start").value), end: Number($("end").value) });
+  gains: clipGains, start: Number($("start").value), end: Number($("end").value) });
 
 async function poll() {
   try {
@@ -774,3 +792,44 @@ async function pollPerformance() {
 }
 
 pollPerformance();
+
+function renderClipMixer() {
+  $("clip-mixer").hidden = !clipChannels.length;
+  $("clip-channels").replaceChildren(...clipChannels.map(([id, name]) => {
+    const row = element("label", "", "mixer-channel");
+    const slider = element("input");
+    slider.type = "range"; slider.min = 0; slider.max = 200; slider.value = clipGains[id] ?? 100;
+    const output = element("output", `${slider.value}%`);
+    slider.oninput = () => {
+      clipGains[id] = slider.valueAsNumber;
+      output.textContent = `${slider.value}%`;
+      $("clip-mix-status").textContent = "Mix changed. Preview to hear it.";
+    };
+    row.append(element("span", name), slider, output);
+    return row;
+  }));
+  const names = Object.keys(state.mixer.presets);
+  $("clip-presets").replaceChildren(...names.map(name => new Option(name, name)));
+  $("clip-preset-load").disabled = !names.length;
+}
+$("clip-preview").onclick = async () => {
+  if (!current) return;
+  const button = $("clip-preview");
+  button.disabled = true;
+  mixResume = {time: video.currentTime, start: Number($("start").value), end: Number($("end").value)};
+  await preparePlayback(current, true, {...clipGains});
+  button.disabled = false;
+};
+$("clip-preset-save").onclick = async () => {
+  if (await act("mixer", {action: "savePreset", name: $("clip-preset-name").value, gains: clipGains})) {
+    renderClipMixer();
+    $("clip-mix-status").textContent = "Preset saved.";
+  }
+};
+$("clip-preset-load").onclick = () => {
+  const gains = state.mixer.presets[$("clip-presets").value];
+  if (!gains) return;
+  clipGains = Object.fromEntries(clipChannels.map(([id]) => [id, gains[id] ?? 100]));
+  renderClipMixer();
+  $("clip-mix-status").textContent = "Preset loaded. Preview to hear it.";
+};

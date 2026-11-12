@@ -199,3 +199,10 @@ button:disabled { opacity: .55; cursor: default; }
 .mixer-channel + .mixer-channel { border-top: 1px solid var(--line); }
 .mixer-channel input { width: 100%; margin: 0; }
 .mixer-channel output { text-align: right; color: var(--muted); }
+
+#clip-mixer { margin-top: 10px; }
+#clip-mixer .mixer-channel { grid-template-columns: minmax(60px, 1fr) minmax(60px, 1fr) 40px; gap: 6px; font-size: 12px; }
+#clip-mixer .storage-row { margin-top: 8px; }
+#clip-mixer input:not([type=range]), #clip-mixer select { min-width: 0; width: 100%; }
+#clip-mix-status { color: var(--muted); font-size: 12px; }
+.workspace aside { max-height: calc(100dvh - 310px); overflow-y: auto; }

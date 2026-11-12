@@ -38,6 +38,18 @@ impl Default for MixerSettings {
 }
 
 impl MixerSettings {
+  pub fn clip_mix(&self, body: &serde_json::Value) -> Result<Self> {
+    let mut result = self.clone();
+    if let Some(gains) = body.get("gains") {
+      let gains: BTreeMap<String, u16> = serde_json::from_value(gains.clone())?;
+      if gains.len() > 128 || gains.iter().any(|(id, gain)| !valid_id(id) || *gain > 200) {
+        bail!("Invalid clip volumes");
+      }
+      result.gains = gains;
+    }
+    Ok(result)
+  }
+
   pub fn gain(&self, id: &str) -> f32 {
     f32::from(self.gains.get(id).copied().unwrap_or(100).min(200)) / 100.0
   }
@@ -72,7 +84,7 @@ impl MixerSettings {
           .filter(|name| !name.is_empty() && name.len() <= 48)
           .context("Use a preset name up to 48 bytes")?;
         if body["action"] == "savePreset" {
-          self.presets.insert(name.into(), self.gains.clone());
+          self.presets.insert(name.into(), self.clip_mix(body)?.gains);
         } else {
           self.gains = self
             .presets
@@ -235,6 +247,20 @@ pub fn export_filter(probe: &serde_json::Value, settings: &MixerSettings) -> Opt
 mod tests {
   use super::*;
   use serde_json::json;
+
+  #[test]
+  fn clip_mix_and_presets_do_not_change_capture_volumes() -> Result<()> {
+    let mut mixer = MixerSettings::default();
+    mixer.gains.insert("microphone".into(), 80);
+    let body = json!({"action":"savePreset","name":"Clip voice","gains":{"microphone":25}});
+    mixer.apply(&body)?;
+    assert_eq!(mixer.gains["microphone"], 80);
+    assert_eq!(mixer.presets["Clip voice"]["microphone"], 25);
+    assert_eq!(mixer.clip_mix(&body)?.gain("microphone"), 0.25);
+    assert!(mixer.clip_mix(&json!({"gains":{"microphone":201}})).is_err());
+    assert!(mixer.clip_mix(&json!({"gains":{"invalid":100}})).is_err());
+    Ok(())
+  }
 
   #[test]
   fn presets_restore_gains_and_export_uses_only_isolated_tracks() -> Result<()> {
