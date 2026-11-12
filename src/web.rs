@@ -48,7 +48,7 @@ fn handle(
   mut stream: TcpStream,
   host: &str,
   token: &str,
-  recorder: &Mutex<Recorder>,
+  recorder: &Arc<Mutex<Recorder>>,
   shortcuts: &mpsc::Sender<hotkeys::Command>,
   app: &AppHandle,
   performance: &Mutex<Performance>,
@@ -139,6 +139,7 @@ fn handle(
       let recorder = recorder.lock().unwrap();
       let mut state = recorder.state();
       state["token"] = json!(token);
+      state["ffmpegStatus"] = crate::maintenance::state()["ffmpeg"].clone();
       match recorder.files() {
         Ok(files) => {
           state["files"] = json!(files);
@@ -256,6 +257,11 @@ fn handle(
           )
         }
       };
+      if path == "/api/ffmpeg-install" {
+        let recorder = recorder.clone();
+        thread::spawn(move || crate::maintenance::setup_ffmpeg(&recorder));
+        return send_json(&mut stream, "200 OK", json!({}));
+      }
       if path == "/api/update-check" {
         thread::spawn(crate::maintenance::check_update);
         return send_json(&mut stream, "200 OK", json!({}));

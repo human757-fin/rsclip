@@ -188,10 +188,12 @@ impl Recorder {
   }
 
   pub fn refresh_ffmpeg(&mut self) {
+    let was_missing = !self.ffmpeg;
     self.ffmpeg = ffmpeg()
       .arg("-version")
       .output()
       .is_ok_and(|result| result.status.success());
+    if was_missing && self.ffmpeg { self.error.clear(); }
     self.start_automatically();
   }
 
@@ -302,7 +304,7 @@ impl Recorder {
 
   fn start(&mut self) -> Result<()> {
     if !self.ffmpeg {
-      bail!("FFmpeg is missing. Add a Windows build with ddagrab and h264_nvenc to PATH and restart rsclip.");
+      bail!("FFmpeg is not ready. Open Settings / General / Software for setup progress, the exact error, and Retry FFmpeg setup.");
     }
     if let Some(previous) = &self.buffer {
       fs::remove_dir_all(previous)?;

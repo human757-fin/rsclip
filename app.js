@@ -211,7 +211,7 @@ async function refresh() {
   }
   updateCaptureDetails();
   const message = state.error || state.hotkeyError || state.notice ||
-    (state.available ? "" : "FFmpeg is missing. Install a Windows build with ddagrab and NVENC, then restart rsclip.");
+    (state.available ? "" : (state.ffmpegStatus || "Preparing FFmpeg. See Settings / General / Software."));
   if (message !== lastNotice) {
     notice(message, Boolean(state.error || !state.available));
     lastNotice = message;
@@ -857,6 +857,7 @@ async function refreshMaintenance() {
     if (!response.ok) return;
     const status = await response.json();
     $("maintenance-ffmpeg").textContent = status.ffmpeg;
+    $("ffmpeg-install").disabled = Boolean(status.ffmpegBusy);
     $("maintenance-update").textContent = status.update;
     $("update-install").hidden = !status.ready;
   } catch (_) {}
@@ -869,6 +870,7 @@ async function maintenanceAction(action) {
     refreshMaintenance();
   } catch (error) { $("maintenance-update").textContent = error.message; }
 }
+$("ffmpeg-install").onclick = () => maintenanceAction("ffmpeg-install");
 $("update-check").onclick = () => maintenanceAction("update-check");
 $("update-install").onclick = () => maintenanceAction("update-install");
 setInterval(refreshMaintenance, 4000);

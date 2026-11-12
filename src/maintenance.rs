@@ -10,6 +10,7 @@ use std::{
 
 static STATUS: OnceLock<Mutex<Value>> = OnceLock::new();
 static JOB: Mutex<()> = Mutex::new(());
+static FFMPEG_JOB: Mutex<()> = Mutex::new(());
 fn status() -> &'static Mutex<Value> {
   STATUS.get_or_init(|| {
     Mutex::new(json!({"ffmpeg":"Checking FFmpeg…", "update":"Checking GitHub…", "ready":false}))
@@ -48,17 +49,42 @@ fn powershell(script: &str) -> Result<String> {
   }
   Ok(String::from_utf8_lossy(&output.stdout).trim().to_owned())
 }
-pub fn ensure_ffmpeg() -> Result<()> {
-  if ["ffmpeg", "ffprobe"].iter().all(|name| Command::new(executable(name))
-    .creation_flags(0x0800_0000)
-    .arg("-version")
-    .output()
-    .is_ok_and(|o| o.status.success()))
-  {
-    return Ok(());
+fn validate_ffmpeg() -> Result<()> {
+  for name in ["ffmpeg", "ffprobe"] {
+    let output = Command::new(executable(name)).creation_flags(0x0800_0000)
+      .arg("-version").output().with_context(|| format!("Could not launch {name}"))?;
+    if !output.status.success() {
+      bail!("{name} exited with {}. {}", output.status, String::from_utf8_lossy(&output.stderr).trim());
+    }
   }
-  powershell(include_str!("../installer/install-ffmpeg.ps1"))?;
+  for (argument, required) in [("-filters", "ddagrab"), ("-encoders", "h264_nvenc")] {
+    let output = Command::new(executable("ffmpeg")).creation_flags(0x0800_0000)
+      .args(["-hide_banner", argument]).output()?;
+    if !output.status.success() || !String::from_utf8_lossy(&output.stdout).contains(required) {
+      bail!("The FFmpeg build does not provide {required}.");
+    }
+  }
   Ok(())
+}
+pub fn ensure_ffmpeg() -> Result<()> {
+  if validate_ffmpeg().is_ok() { return Ok(()); }
+  status().lock().unwrap()["ffmpeg"] = json!("Downloading and verifying FFmpeg. This can take several minutes…");
+  powershell(include_str!("../installer/install-ffmpeg.ps1"))?;
+  validate_ffmpeg().context("FFmpeg was downloaded but could not run")
+}
+pub fn setup_ffmpeg(recorder: &Mutex<crate::recorder::Recorder>) {
+  let Ok(_job) = FFMPEG_JOB.try_lock() else { return };
+  status().lock().unwrap()["ffmpegBusy"] = json!(true);
+  match ensure_ffmpeg() {
+    Ok(()) => {
+      status().lock().unwrap()["ffmpeg"] = json!("FFmpeg is ready.");
+      recorder.lock().unwrap().refresh_ffmpeg();
+    }
+    Err(error) => {
+      status().lock().unwrap()["ffmpeg"] = json!(format!("FFmpeg setup failed: {error:#}"));
+    }
+  }
+  status().lock().unwrap()["ffmpegBusy"] = json!(false);
 }
 pub fn check_update() {
   let Ok(_job) = JOB.try_lock() else { return };
@@ -100,14 +126,6 @@ pub fn install() -> Result<()> {
   Ok(())
 }
 pub fn start(recorder: std::sync::Arc<Mutex<crate::recorder::Recorder>>) {
-  std::thread::spawn(move || match ensure_ffmpeg() {
-    Ok(()) => {
-      status().lock().unwrap()["ffmpeg"] = json!("FFmpeg is ready.");
-      recorder.lock().unwrap().refresh_ffmpeg();
-    }
-    Err(error) => {
-      status().lock().unwrap()["ffmpeg"] = json!(format!("FFmpeg setup failed: {error}"));
-    }
-  });
+  std::thread::spawn(move || setup_ffmpeg(&recorder));
   std::thread::spawn(check_update);
 }

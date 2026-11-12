@@ -1,4 +1,5 @@
 $ErrorActionPreference = 'Stop'
+$ProgressPreference = 'SilentlyContinue'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 $root = Join-Path $env:LOCALAPPDATA 'rsclip\tools'
 New-Item -ItemType Directory -Force -Path $root | Out-Null
