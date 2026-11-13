@@ -131,7 +131,34 @@ output, #ticks { font: 13px Consolas, monospace; }
 #ticks { justify-content: space-between; color: var(--muted); margin: 10px 0 6px; }
 .track { position: relative; display: grid; align-items: center; height: 61px; background: #212733; border-radius: 5px; overflow: hidden; }
 #range { position: absolute; height: 100%; background: #609dfc32; border: 2px solid var(--blue); border-radius: 5px; pointer-events: none; }
-input[type=range] { accent-color: var(--blue); padding: 0; }
+input[type=range] {
+  --slider-fill: 0%;
+  appearance: none; -webkit-appearance: none;
+  height: 28px; min-width: 0; margin: 0; padding: 0; border: 0;
+  background: transparent; border-radius: 6px; cursor: pointer;
+}
+input[type=range]::-webkit-slider-runnable-track {
+  height: 4px; border-radius: 99px;
+  background: linear-gradient(to right, var(--blue) 0 var(--slider-fill), #424954 var(--slider-fill) 100%);
+}
+input[type=range]::-webkit-slider-thumb {
+  appearance: none; -webkit-appearance: none;
+  width: 14px; height: 14px; margin-top: -5px;
+  border: 2px solid #20242b; border-radius: 50%; background: #dce9ff;
+  box-shadow: 0 0 0 1px #596d8b; transition: background 120ms, box-shadow 120ms;
+}
+input[type=range]:hover::-webkit-slider-thumb { background: #fff; box-shadow: 0 0 0 3px #609dfc30; }
+input[type=range]:active::-webkit-slider-thumb { background: var(--blue); box-shadow: 0 0 0 4px #609dfc26; }
+input[type=range]:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+input[type=range]:disabled { opacity: .4; cursor: default; }
+input[type=range]::-moz-range-track { height: 4px; background: #424954; border-radius: 99px; }
+input[type=range]::-moz-range-progress { height: 4px; background: var(--blue); border-radius: 99px; }
+input[type=range]::-moz-range-thumb { width: 10px; height: 10px; border: 2px solid #20242b; border-radius: 50%; background: #dce9ff; box-shadow: 0 0 0 1px #596d8b; }
+#seek { height: 44px; padding: 0 4px; }
+#seek::-webkit-slider-thumb { width: 6px; height: 30px; margin-top: -13px; border: 1px solid #a9cafd; border-radius: 3px; background: #f1f6ff; box-shadow: 0 1px 4px #0008; }
+#seek::-moz-range-thumb { width: 4px; height: 28px; border: 1px solid #a9cafd; border-radius: 3px; background: #f1f6ff; }
+@media (prefers-reduced-motion: reduce) { input[type=range]::-webkit-slider-thumb { transition: none; } }
+@media (forced-colors: active) { input[type=range] { appearance: auto; } }
 #seek { z-index: 1; margin: 0; width: 100%; }
 .trim-controls { margin-top: 10px; }
 .trim-controls label { display: flex; align-items: center; gap: 8px; flex: 1; color: var(--muted); }

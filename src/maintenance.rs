@@ -69,7 +69,7 @@ fn validate_ffmpeg() -> Result<()> {
 fn nvenc_probe() -> Result<()> {
   let output = Command::new(executable("ffmpeg")).creation_flags(0x0800_0000)
     .args(["-hide_banner", "-loglevel", "error", "-nostdin", "-f", "lavfi", "-i",
-      "color=size=64x64:rate=1", "-frames:v", "1", "-c:v", "h264_nvenc", "-f", "null", "-"])
+      "color=size=1280x720:rate=30,format=yuv420p", "-frames:v", "1", "-c:v", "h264_nvenc", "-f", "null", "-"])
     .output().context("Could not test NVIDIA encoding")?;
   if !output.status.success() {
     bail!("{}", String::from_utf8_lossy(&output.stderr).trim());

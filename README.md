@@ -72,4 +72,9 @@ Global shortcuts are suspended while the shortcut editor listens. Escape, closin
 
 ### NVIDIA driver API compatibility (0.3.9)
 
-Setup now probes H.264 NVENC using one synthetic 64x64 frame. When FFmpeg reports an unsupported NVENC API version, rsclip downloads Gyan FFmpeg 8.0.1 full from its versioned GitHub release and checks the pinned SHA256 from Microsoft's winget-pkgs manifest. It then repeats feature and hardware encoding checks. This replaces the app-managed FFmpeg only; a PATH installation is unchanged. The compatibility pairing still needs a live test on the affected GPU. Other GPU failures are reported directly. On existing installs, stop capture and use General / Software / Retry FFmpeg setup, or restart rsclip.
+Setup now probes H.264 NVENC using one synthetic 1280x720 frame. When FFmpeg reports an unsupported NVENC API version, rsclip downloads Gyan FFmpeg 8.0.1 full from its versioned GitHub release and checks the pinned SHA256 from Microsoft's winget-pkgs manifest. It then repeats feature and hardware encoding checks. This replaces the app-managed FFmpeg only; a PATH installation is unchanged. The compatibility pairing still needs a live test on the affected GPU. Other GPU failures are reported directly. On existing installs, stop capture and use General / Software / Retry FFmpeg setup, or restart rsclip.
+
+
+### Desktop fixes (0.3.10)
+
+The NVENC probe now uses 720p YUV420 video instead of a 64x64 frame, avoiding hardware minimum-size failures. A Windows session-scoped instance guard runs before recorder initialization: another launch signals the running app to show and focus its window, then exits without starting capture or setup workers. Slider styling now includes filled tracks, defined handles, and keyboard focus for audio, trim, and playback controls.

@@ -4,6 +4,7 @@ mod app_audio;
 mod audio;
 mod desktop;
 mod hotkeys;
+mod instance;
 mod maintenance;
 mod mixer;
 mod monitors;
@@ -42,6 +43,7 @@ fn main() {
 }
 
 fn run() -> Result<()> {
+  let Some(mut instance) = instance::Instance::acquire()? else { return Ok(()); };
   let (feedback, feedback_events) = mpsc::channel();
   let recorder = Recorder::new(feedback)?;
   let start_hidden = recorder.starts_hidden();
@@ -116,6 +118,7 @@ fn run() -> Result<()> {
     })
     .build(tauri::generate_context!())?;
 
+  instance.listen(app.handle().clone());
   let background_recorder = recorder.clone();
   let mut worker = Some(thread::spawn(move || {
     hotkeys::monitor(background_recorder, queue)

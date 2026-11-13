@@ -122,6 +122,7 @@ function updateTimeline() {
   $("range").style.left = (start / duration * 100) + "%";
   $("range").style.width = ((end - start) / duration * 100) + "%";
   $("seek").value = video.currentTime;
+  for (const id of ["seek", "start", "end"]) paintSlider($(id));
   $("export").disabled = end <= start;
 }
 
@@ -455,7 +456,7 @@ function renderMixer() {
       range.id = `gain-${id}`;
       const readout = element("output");
       readout.id = `gain-value-${id}`;
-      range.oninput = () => { readout.textContent = `${range.value}%`; };
+      range.oninput = () => { readout.textContent = `${range.value}%`; paintSlider(range); };
       range.onchange = async () => {
         if (!await act("mixer", { action: "gain", source: id, gain: range.valueAsNumber })) {
           range.value = state.mixer.gains[id] ?? 100;
@@ -748,6 +749,7 @@ video.onvolumechange = () => {
   $("mute").textContent = video.muted ? "Unmute" : "Mute";
   $("mute").setAttribute("aria-pressed", video.muted);
   $("volume").value = video.volume;
+  paintSlider($("volume"));
 };
 $("seek").oninput = () => { video.currentTime = Number($("seek").value); };
 for (const id of ["start", "end"]) {
@@ -808,6 +810,7 @@ function renderClipMixer() {
       output.textContent = `${slider.value}%`;
       $("clip-mix-status").textContent = "Mix changed. Preview to hear it.";
     };
+    paintSlider(slider);
     row.append(element("span", name), slider, output);
     return row;
   }));
@@ -875,3 +878,14 @@ $("update-check").onclick = () => maintenanceAction("update-check");
 $("update-install").onclick = () => maintenanceAction("update-install");
 setInterval(refreshMaintenance, 4000);
 refreshMaintenance();
+
+function paintSlider(slider) {
+  const min = Number(slider.min || 0);
+  const max = Number(slider.max || 100);
+  const percent = max > min ? Math.max(0, Math.min(100, (slider.valueAsNumber - min) / (max - min) * 100)) : 0;
+  slider.style.setProperty("--slider-fill", `${percent}%`);
+}
+document.addEventListener("input", event => {
+  if (event.target.matches('input[type="range"]')) paintSlider(event.target);
+});
+document.querySelectorAll('input[type="range"]').forEach(paintSlider);
