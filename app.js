@@ -298,7 +298,7 @@ $("capture-settings").onsubmit = async event => {
 };
 
 const settingsPage = $("settings-page");
-const generalKeys = ["launchOnLogin", "autoBuffer", "startHidden", "captureOverlay", "saveSounds"];
+const generalKeys = ["launchOnLogin", "autoBuffer", "startHidden", "captureOverlay", "overlayStreamProof", "saveSounds"];
 const videoSettingsVisible = () => !settingsPage.hidden && !$("video-options").hidden;
 const monitorSelect = $("output");
 const previewImage = $("monitor-preview-image");

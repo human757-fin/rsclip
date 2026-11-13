@@ -83,3 +83,8 @@ The NVENC probe now uses 720p YUV420 video instead of a 64x64 frame, avoiding ha
 ### Flexible keybinds (0.3.12)
 
 Keybinds can use single letters, numbers, function keys, Space, arrows, navigation keys, numpad keys, and punctuation, with optional modifiers. Escape remains reserved for cancelling shortcut editing. Windows-reserved keys and shortcuts already registered by another app are rejected. Duplicate rsclip bindings are also rejected; accepted bindings persist across restarts.
+
+
+### Overlay capture visibility (0.3.13)
+
+General / Capture feedback / Stream-proof overlay is enabled by default. Turn it off to allow display-capture tools to include the feedback overlay. Capture methods that only record a game's window may still omit it. Changing this setting dismisses any current notification and applies to the next one. The preference survives restarts; older settings retain protected overlays. Disabling Capture overlay still destroys the overlay window.

@@ -259,6 +259,7 @@ impl Recorder {
       Some("autoBuffer") => general.auto_buffer = enabled,
       Some("startHidden") => general.start_hidden = enabled,
       Some("captureOverlay") => general.capture_overlay = enabled,
+      Some("overlayStreamProof") => general.overlay_stream_proof = enabled,
       Some("saveSounds") => general.save_sounds = enabled,
       _ => bail!("Unknown general setting."),
     }
@@ -276,7 +277,7 @@ impl Recorder {
     if startup_changed {
       self.launch_on_login = enabled;
     }
-    if setting == Some("captureOverlay") && !enabled {
+    if (setting == Some("captureOverlay") && !enabled) || setting == Some("overlayStreamProof") {
       let _ = self.feedback.send(OverlayEvent::Disable);
     }
     self.notice = "Settings saved".into();
@@ -537,6 +538,7 @@ impl Recorder {
   fn feedback(&self, title: &'static str, source: PathBuf, next_segment: Option<PathBuf>) {
     if self.general.capture_overlay {
       let _ = self.feedback.send(OverlayEvent::Show(Feedback {
+        stream_proof: self.general.overlay_stream_proof,
         title,
         source,
         cache: self.playback_cache(),
@@ -870,7 +872,7 @@ impl Recorder {
     json!({
       "active": self.active(), "recording": self.recording.is_some(), "settings": self.settings, "error": self.error,
       "mixer": self.mixer_settings(), "audioSources": *self.sources.lock().unwrap(),
-      "general": { "autoBuffer": self.general.auto_buffer, "startHidden": self.general.start_hidden, "saveSounds": self.general.save_sounds, "captureOverlay": self.general.capture_overlay, "launchOnLogin": self.launch_on_login },
+      "general": { "autoBuffer": self.general.auto_buffer, "startHidden": self.general.start_hidden, "saveSounds": self.general.save_sounds, "captureOverlay": self.general.capture_overlay, "overlayStreamProof": self.general.overlay_stream_proof, "launchOnLogin": self.launch_on_login },
       "notice": self.notice, "hotkeyError": self.hotkey_error, "hotkeys": self.hotkeys, "available": self.ffmpeg, "mediaFolder": self.media.to_string_lossy()
     })
   }

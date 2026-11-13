@@ -14,6 +14,7 @@ use tauri::{AppHandle, Manager, PhysicalPosition, WebviewUrl, WebviewWindowBuild
 
 pub struct Feedback {
   pub title: &'static str,
+  pub stream_proof: bool,
   pub source: PathBuf,
   pub cache: PathBuf,
   pub next_segment: Option<PathBuf>,
@@ -29,6 +30,7 @@ fn create_window(
   label: &str,
   url: tauri::Url,
   initial: &str,
+  stream_proof: bool,
 ) -> tauri::Result<tauri::WebviewWindow> {
   let origin = url.origin();
   let window = WebviewWindowBuilder::new(app, label, WebviewUrl::External(url))
@@ -41,7 +43,7 @@ fn create_window(
     .focusable(false)
     .skip_taskbar(true)
     .always_on_top(true)
-    .content_protected(true)
+    .content_protected(stream_proof)
     .initialization_script(initial)
     .on_navigation(move |target| target.origin() == origin)
     .build()?;
@@ -70,6 +72,7 @@ pub fn setup(app: &AppHandle, url: tauri::Url, events: mpsc::Receiver<OverlayEve
         }
       };
       let title = serde_json::to_string(event.title).unwrap();
+      let stream_proof = event.stream_proof;
       let show_label = label.clone();
       let url = url.clone();
       dispatch(&app, &sequence, id, move |handle| {
@@ -80,7 +83,7 @@ pub fn setup(app: &AppHandle, url: tauri::Url, events: mpsc::Receiver<OverlayEve
           let _ = window.eval(&script);
           window
         } else {
-          let Ok(window) = create_window(&handle, &show_label, url, &script) else {
+          let Ok(window) = create_window(&handle, &show_label, url, &script, stream_proof) else {
             return;
           };
           window

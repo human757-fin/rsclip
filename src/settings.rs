@@ -94,6 +94,7 @@ pub struct General {
   pub start_hidden: bool,
   pub save_sounds: bool,
   pub capture_overlay: bool,
+  pub overlay_stream_proof: bool,
   pub media_folder: Option<PathBuf>,
   pub library_folders: Vec<PathBuf>,
   pub launch_on_login: Option<bool>,
@@ -106,6 +107,7 @@ impl Default for General {
       start_hidden: false,
       save_sounds: true,
       capture_overlay: true,
+      overlay_stream_proof: true,
       media_folder: None,
       library_folders: Vec::new(),
       launch_on_login: None,
@@ -235,6 +237,17 @@ impl Encoding {
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  #[test]
+  fn stream_proof_defaults_on_and_persists_when_disabled() {
+    let legacy: General = serde_json::from_str(r#"{"captureOverlay":true}"#).unwrap();
+    assert!(legacy.overlay_stream_proof);
+    let mut config = legacy;
+    config.overlay_stream_proof = false;
+    let restored: General = serde_json::from_slice(&serde_json::to_vec(&config).unwrap()).unwrap();
+    assert!(!restored.overlay_stream_proof);
+    assert!(restored.capture_overlay);
+  }
 
   #[test]
   fn accepts_custom_lengths_and_fps_and_rejects_invalid_settings() {
