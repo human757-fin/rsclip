@@ -36,11 +36,37 @@ pub struct Recorder {
   sources: Sources,
   launch_on_login: bool,
   recording: Option<Recording>,
+  recovery: Recovery,
   feedback: mpsc::Sender<OverlayEvent>,
   pub notice: String,
   error: String,
   pub hotkey_error: String,
   pub hotkeys: Value,
+}
+
+
+#[derive(Default)]
+struct Recovery {
+  attempts: usize,
+  next: Option<Instant>,
+  running_since: Option<Instant>,
+  pending_confirmation: bool,
+}
+impl Recovery {
+  fn schedule(&mut self, now: Instant) -> bool {
+    self.running_since = None;
+    self.pending_confirmation = false;
+    self.next = [2, 5, 15].get(self.attempts).map(|seconds| now + Duration::from_secs(*seconds));
+    self.next.is_some()
+  }
+  fn take_due(&mut self, now: Instant) -> bool {
+    if self.next.is_some_and(|deadline| now >= deadline) {
+      self.next = None;
+      self.attempts += 1;
+      self.pending_confirmation = true;
+      true
+    } else { false }
+  }
 }
 
 struct Recording {
@@ -171,6 +197,7 @@ impl Recorder {
       sources,
       launch_on_login,
       recording: None,
+      recovery: Recovery::default(),
       feedback,
       notice: startup_warning.unwrap_or(notice),
       error: String::new(),
@@ -382,6 +409,7 @@ impl Recorder {
     self.buffer_codec = encoding.codec;
     self.child = Some(child);
     self.audio = Some(audio);
+    self.recovery.running_since = Some(Instant::now());
     self.notice = "Replay buffer started · desktop audio on".into();
     Ok(())
   }
@@ -398,6 +426,7 @@ impl Recorder {
   }
 
   fn stop(&mut self) -> Result<()> {
+    self.recovery = Recovery::default();
     let Some(mut child) = self.child.take() else {
       return Ok(());
     };
@@ -500,9 +529,54 @@ impl Recorder {
     }
   }
 
+  fn status_notification(&self, title: &'static str) {
+    let _ = self.feedback.send(OverlayEvent::Status {
+      title, show_overlay: self.general.capture_overlay, stream_proof: self.general.overlay_stream_proof,
+    });
+  }
+
+  fn schedule_restart(&mut self, now: Instant) {
+    if self.recovery.schedule(now) {
+      self.notice = "Replay buffer stopped. Automatic restart scheduled.".into();
+      self.status_notification("Buffer stopped — retrying");
+    } else {
+      self.notice = "Replay buffer could not recover after 3 attempts. Start it manually to try again.".into();
+      self.status_notification("Buffer stopped — restart failed");
+    }
+  }
+
   pub fn tick(&mut self) {
-    if let Err(error) = self.maintain() {
-      self.error = format!("{error:#}");
+    let was_active = self.active();
+    if let Err(error) = self.maintain() { self.error = format!("{error:#}"); }
+    let now = Instant::now();
+    if was_active && !self.active() {
+      if self.recording.is_none() {
+        self.schedule_restart(now);
+      } else {
+        // Retain recording segments so Save recording can recover them. A new
+        // replay buffer would otherwise delete these files in start().
+        self.recovery = Recovery::default();
+        self.notice = "Recording stopped unexpectedly. Save recording to recover completed segments.".into();
+        self.status_notification("Recording stopped unexpectedly");
+      }
+    }
+    if !self.active() && self.recording.is_none() && self.recovery.take_due(now) {
+      let previous_error = self.error.clone();
+      if let Err(error) = self.start() {
+        self.error = format!("Replay buffer restart failed. {error:#}");
+        self.schedule_restart(now);
+      } else {
+        self.error = previous_error;
+      }
+    }
+    if self.active() && self.recovery.pending_confirmation && self.parts().is_ok_and(|parts| parts.len() >= 2) {
+      self.recovery.pending_confirmation = false;
+      self.error.clear();
+      self.notice = "Replay buffer restarted. The replay history is filling again.".into();
+      self.status_notification("Buffer restarted");
+    }
+    if self.active() && self.recovery.running_since.is_some_and(|since| now.saturating_duration_since(since) >= Duration::from_secs(30)) {
+      self.recovery.attempts = 0;
     }
   }
 
@@ -540,7 +614,7 @@ impl Recorder {
       let _ = self.feedback.send(OverlayEvent::Show(Feedback {
         stream_proof: self.general.overlay_stream_proof,
         title,
-        source,
+        source: Some(source),
         cache: self.playback_cache(),
         next_segment,
       }));
@@ -861,8 +935,12 @@ impl Recorder {
       "toggle" if self.recording.is_some() => {
         bail!("Save the current recording before toggling the buffer.")
       }
-      "toggle" if self.active() => self.stop()?,
-      "toggle" => self.start()?,
+      "toggle" if self.active() || self.recovery.next.is_some() => {
+        self.stop()?;
+        self.notice = "Replay buffer stopped".into();
+        self.status_notification("Buffer stopped");
+      }
+      "toggle" => { self.recovery = Recovery::default(); self.start()?; },
       "record" => self.toggle_recording()?,
       "general" => self.update_general(body)?,
       "mixer" => self.update_mixer(body)?,
@@ -877,7 +955,7 @@ impl Recorder {
 
   pub fn state(&self) -> Value {
     json!({
-      "active": self.active(), "recording": self.recording.is_some(), "settings": self.settings, "error": self.error,
+      "active": self.active(), "recovering": self.recovery.next.is_some() || self.recovery.pending_confirmation, "recording": self.recording.is_some(), "settings": self.settings, "error": self.error,
       "mixer": self.mixer_settings(), "audioSources": *self.sources.lock().unwrap(),
       "general": { "autoBuffer": self.general.auto_buffer, "startHidden": self.general.start_hidden, "saveSounds": self.general.save_sounds, "captureOverlay": self.general.capture_overlay, "overlayStreamProof": self.general.overlay_stream_proof, "launchOnLogin": self.launch_on_login },
       "notice": self.notice, "hotkeyError": self.hotkey_error, "hotkeys": self.hotkeys, "available": self.ffmpeg, "mediaFolder": self.media.to_string_lossy()
@@ -974,6 +1052,83 @@ mod tests {
   use super::*;
 
   #[test]
+  fn recovery_waits_backs_off_and_stops_after_three_failures() {
+    let now = Instant::now();
+    let mut recovery = Recovery::default();
+    for (attempt, delay) in [2, 5, 15].into_iter().enumerate() {
+      assert!(recovery.schedule(now));
+      assert!(!recovery.take_due(now));
+      assert!(!recovery.take_due(now + Duration::from_secs(delay - 1)));
+      assert!(recovery.take_due(now + Duration::from_secs(delay)));
+      assert_eq!(recovery.attempts, attempt + 1);
+      assert!(recovery.pending_confirmation);
+      assert!(!recovery.take_due(now + Duration::from_secs(100)));
+    }
+    assert!(!recovery.schedule(now));
+    assert!(recovery.next.is_none());
+    assert!(!recovery.pending_confirmation);
+    recovery = Recovery::default();
+    assert!(recovery.schedule(now));
+  }
+
+  #[test]
+  fn crashed_buffer_notifies_and_manual_stop_cancels_recovery() -> Result<()> {
+    let root = env::current_dir()?.join("target").join(format!("recovery-test-{}", Uuid::new_v4()));
+    let data = root.join("rsclip");
+    let first = data.join("media");
+    let buffer = data.join("buffer-test");
+    fs::create_dir_all(&first)?;
+    fs::create_dir_all(&buffer)?;
+    let (feedback, events) = mpsc::channel();
+    let mut recorder = Recorder {
+      data: data.clone(),
+      media: first.clone(),
+      buffer: None,
+      buffer_codec: Codec::H264,
+      child: None,
+      audio: None,
+      ffmpeg: false,
+      settings: Settings::default(),
+      general: General::default(),
+      mixer: Arc::new(Mutex::new(MixerSettings::default())),
+      sources: default_audio_sources(),
+      launch_on_login: false,
+      recording: None,
+      recovery: Recovery::default(),
+      feedback,
+      notice: String::new(),
+      error: String::new(),
+      hotkey_error: String::new(),
+      hotkeys: Value::Null,
+    };
+    recorder.general.capture_overlay = false;
+    recorder.buffer = Some(buffer.clone());
+    let mut child = Command::new("cmd.exe").creation_flags(0x0800_0000).args(["/c", "exit", "1"]).spawn()?;
+    child.wait()?;
+    recorder.child = Some(child);
+    recorder.tick();
+    assert!(!recorder.active());
+    assert!(recorder.recovery.next.is_some());
+    assert!(matches!(events.try_recv()?, OverlayEvent::Status { show_overlay: false, .. }));
+    recorder.act("toggle", &Value::Null)?;
+    assert!(recorder.recovery.next.is_none());
+    assert!(!recorder.active());
+    // A recording crash preserves its segments and is never automatically replaced.
+    recorder.recording = Some(Recording { first_part: None, resume_buffer: true });
+    let mut child = Command::new("cmd.exe").creation_flags(0x0800_0000).args(["/c", "exit", "1"]).spawn()?;
+    child.wait()?;
+    recorder.child = Some(child);
+    recorder.tick();
+    assert!(recorder.recording.is_some());
+    assert!(recorder.recovery.next.is_none());
+    assert!(buffer.is_dir());
+    recorder.recording = None;
+    recorder.shutdown();
+    fs::remove_dir_all(root)?;
+    Ok(())
+  }
+
+  #[test]
   fn keeps_previous_folders_and_resolves_old_recordings() -> Result<()> {
     let root = env::current_dir()?
       .join("target")
@@ -1000,6 +1155,7 @@ mod tests {
       sources: default_audio_sources(),
       launch_on_login: false,
       recording: None,
+      recovery: Recovery::default(),
       feedback,
       notice: String::new(),
       error: String::new(),

@@ -15,7 +15,7 @@ use tauri::{AppHandle, Manager, PhysicalPosition, WebviewUrl, WebviewWindowBuild
 pub struct Feedback {
   pub title: &'static str,
   pub stream_proof: bool,
-  pub source: PathBuf,
+  pub source: Option<PathBuf>,
   pub cache: PathBuf,
   pub next_segment: Option<PathBuf>,
 }
@@ -23,6 +23,7 @@ pub struct Feedback {
 pub enum OverlayEvent {
   Show(Feedback),
   Disable,
+  Status { title: &'static str, show_overlay: bool, stream_proof: bool },
 }
 
 fn create_window(
@@ -60,6 +61,11 @@ pub fn setup(app: &AppHandle, url: tauri::Url, events: mpsc::Receiver<OverlayEve
       let id = sequence.fetch_add(1, Ordering::Relaxed) + 1;
       let event = match event {
         OverlayEvent::Show(event) => event,
+        OverlayEvent::Status { title, show_overlay, stream_proof } => {
+          if let Some(tray) = app.tray_by_id("rsclip") { let _ = tray.set_tooltip(Some(format!("rsclip — {title}"))); }
+          if !show_overlay { continue; }
+          Feedback { title, stream_proof, source: None, cache: PathBuf::new(), next_segment: None }
+        }
         OverlayEvent::Disable => {
           let previous = std::mem::replace(&mut label, format!("capture-feedback-{id}"));
           let handle = app.clone();
@@ -113,8 +119,9 @@ pub fn setup(app: &AppHandle, url: tauri::Url, events: mpsc::Receiver<OverlayEve
         if frame_sequence.load(Ordering::Relaxed) != id {
           return;
         }
+        let Some(source) = &event.source else { return; };
         if let Ok(jpeg) =
-          playback::thumbnail(&event.cache, &event.source).and_then(|path| Ok(fs::read(path)?))
+          playback::thumbnail(&event.cache, source).and_then(|path| Ok(fs::read(path)?))
         {
           let image = STANDARD.encode(jpeg);
           dispatch(&frame_app, &frame_sequence, id, move |handle| {

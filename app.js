@@ -200,8 +200,8 @@ async function refresh() {
     $(key).checked = state.general[key];
     $(key).disabled = false;
   }
-  $("toggle").classList.toggle("live", state.active);
-  $("toggle").querySelector("b").textContent = state.active ? "Buffering · Stop" : "Start replay buffer";
+  $("toggle").classList.toggle("live", state.active || state.recovering);
+  $("toggle").querySelector("b").textContent = state.active ? "Buffering · Stop" : state.recovering ? "Restarting / Stop" : "Start replay buffer";
   const { seconds, longSeconds } = state.settings;
   $("media-folder").value = state.mediaFolder;
   $("length").textContent = `${formatLength(seconds)} / ${formatLength(longSeconds)}`;

@@ -100,3 +100,10 @@ The export split button selects H.264, H.265 / HEVC, or AV1 for trimmed exports.
 ### Reopen after updates (0.3.15)
 
 In-app NSIS updates now request restart on successful installation. The installer launches the new executable from its installed location with `--show-window`, so an update opens the main window even when normal startup is configured to use the tray. The saved Start hidden setting still applies to normal launches. This takes effect for updates initiated by 0.3.15 or newer; upgrading from an older updater may require reopening once manually.
+
+
+### Replay buffer recovery (0.3.16)
+
+Unexpected replay-process exits trigger up to three retries, delayed by 2, 5, and 15 seconds. The retry budget resets after 30 seconds of stable capture. A restart is announced only after a completed video segment is available. The current error stays visible until recovery succeeds. Manual stop, cancelling a pending restart, and quitting cancel recovery. Failed manual recordings retain their segments for Save recording and are not replaced automatically.
+
+Stopped/retrying, restarted, and exhausted-retry notifications use the existing feedback overlay and respect its stream-proof setting. When Capture overlay is off, notifications update the app status and tray tooltip without creating an overlay WebView.
