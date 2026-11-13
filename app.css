@@ -48,10 +48,42 @@ details[open] summary { border-color: var(--blue); }
 .keybind { font: 13px Consolas, monospace; padding: 5px 8px; border-radius: 5px; background: var(--bg); white-space: nowrap; }
 .keybind[aria-pressed="true"] { border-color: var(--blue); color: var(--blue); }
 .keybind.unavailable, #key-help.error { color: #ffaaa8; }
-.settings select {
+select, .settings select {
   appearance: none;
-  padding-right: 33px;
-  background: var(--panel) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23e6e8ed' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") no-repeat right 10px center;
+  min-height: 32px; padding: 6px 34px 6px 11px;
+  color: var(--text); border: 1px solid #414956; border-radius: 7px;
+  background: #252a32 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23aab9cf' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m7 10 5 5 5-5'/%3E%3C/svg%3E") no-repeat right 10px center;
+  cursor: pointer; text-overflow: ellipsis;
+  transition: border-color 120ms, background-color 120ms, box-shadow 120ms;
+}
+select:hover:not(:disabled) { background-color: #2d3440; border-color: #61718a; }
+select:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; border-color: var(--blue); }
+select:disabled { opacity: .45; cursor: default; }
+select option { color: var(--text); background: #232831; font: inherit; }
+select option:checked { background: #304766; color: #edf4ff; }
+/* Newer WebView2 versions allow native select menus to share the app's styling.
+   Older versions retain the styled control and Windows' keyboard-accessible menu. */
+@supports (appearance: base-select) {
+  select, .settings select, ::picker(select) { appearance: base-select; }
+  select, .settings select { background-image: none; padding-right: 11px; }
+  select::picker-icon { color: #aab9cf; transition: rotate 120ms; }
+  select:open { border-color: var(--blue); box-shadow: 0 0 0 3px #609dfc18; }
+  select:open::picker-icon { rotate: 180deg; }
+  ::picker(select) {
+    color: var(--text); background: #232831; border: 1px solid #485366;
+    border-radius: 9px; padding: 5px; margin-top: 5px;
+    box-shadow: 0 12px 30px #0007;
+    max-height: min(320px, 50dvh); overflow-y: auto;
+    scrollbar-width: thin; scrollbar-color: #57667c #232831;
+  }
+  select option { min-height: 32px; padding: 7px 10px; border-radius: 5px; gap: 10px; }
+  select option:hover, select option:focus { background: #343e4e; }
+  select option:checked { background: #304766; color: #edf4ff; font-weight: 600; }
+  select option::checkmark { color: #95bdff; }
+}
+@media (prefers-reduced-motion: reduce) { select, select::picker-icon { transition: none; } }
+@media (forced-colors: active) {
+  select, .settings select { appearance: auto; background-image: none; border-color: ButtonText; }
 }
 .settings { max-width: 1040px; padding: 18px clamp(17px, 2.25vw, 44px); }
 .settings-section { margin-top: 12px; padding: 12px 14px; background: var(--top); border: 1px solid var(--line); border-radius: 9px; }
