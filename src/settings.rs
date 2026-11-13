@@ -56,6 +56,7 @@ pub struct Settings {
 pub struct Encoding {
   pub output: u64,
   pub fps: u64,
+  pub height: u64,
   pub codec: Codec,
   compression: Compression,
   bitrate: u64,
@@ -78,6 +79,7 @@ impl Default for Encoding {
     Self {
       output: 0,
       fps: 60,
+      height: 0,
       codec: Codec::default(),
       compression: Compression::default(),
       bitrate: 12,
@@ -152,6 +154,7 @@ impl Settings {
       bail!("Choose lengths from 5 to 600 seconds. Long must be at least as long as Short.");
     }
     let encoding = self.encoding;
+    if ![0, 720, 1080, 1440, 2160].contains(&encoding.height) { bail!("Choose a listed capture resolution."); }
     if encoding.output > 15 || !(15..=240).contains(&encoding.fps) {
       bail!("Choose a display index from 0 to 15 and a frame rate from 15 to 240 FPS.");
     }
@@ -175,10 +178,11 @@ impl Settings {
 
 impl Encoding {
   pub fn source(self) -> String {
-    format!(
-      "ddagrab=output_idx={}:framerate={}:draw_mouse=0",
-      self.output, self.fps
-    )
+    let mut source = format!("ddagrab=output_idx={}:framerate={}:draw_mouse=0", self.output, self.fps);
+    if self.height != 0 {
+      source.push_str(&format!(r",hwdownload,format=bgra,scale=w=-2:h=trunc(min({}\,ih)/2)*2:flags=bilinear,format=nv12", self.height));
+    }
+    source
   }
 
   pub fn args(self, command: &mut Command, segment: u64) {
@@ -263,6 +267,21 @@ mod tests {
     settings.long_seconds = 300;
     settings.encoding.fps = 241;
     assert!(settings.validate().is_err());
+  }
+
+  #[test]
+  fn capture_resolution_round_trips_and_old_profiles_remain_native() {
+    let legacy: Encoding = serde_json::from_str(r#"{"fps":60}"#).unwrap();
+    assert_eq!(legacy.height, 0);
+    assert!(!legacy.source().contains("hwdownload"));
+    let mut config = Settings::default();
+    config.encoding.height = 720;
+    let loaded: Settings = serde_json::from_slice(&serde_json::to_vec(&config).unwrap()).unwrap();
+    assert_eq!(loaded.encoding.height, 720);
+    assert!(loaded.validate().is_ok());
+    assert!(loaded.encoding.source().contains(r"trunc(min(720\,ih)/2)*2"));
+    config.encoding.height = 721;
+    assert!(config.validate().is_err());
   }
 
   #[test]

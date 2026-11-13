@@ -4,6 +4,7 @@ const keyLabels = { save: "Save short clip", save_long: "Save long clip", toggle
 let state;
 let tab = "clips";
 let current;
+let exportCodec = "h264";
 let clipGains = {};
 let clipChannels = [];
 let mixResume;
@@ -144,7 +145,7 @@ function openFile(file) {
   $("resolution").textContent = "—";
   $("download").href = path(file);
   $("download").download = file.name;
-  $("timeline").hidden = $("export").hidden = $("compatible").hidden = video.hidden = !clip;
+  $("timeline").hidden = $("export-control").hidden = $("compatible").hidden = video.hidden = !clip;
   $("compatible").disabled = false;
   $("reveal-media").hidden = !clip;
   setPlaybackReady(false);
@@ -288,6 +289,7 @@ $("capture-settings").onsubmit = async event => {
   const encoding = {
     output: Number(monitorSelect.value),
     fps: $("fps").valueAsNumber,
+    height: Number($("height").value),
     codec: $("codec").value,
     compression: $("compression").value,
     bitrate: $("bitrate").valueAsNumber,
@@ -397,7 +399,7 @@ async function showMonitorPreview() {
 
 function loadCaptureSettings() {
   const { encoding } = state.settings;
-  for (const key of ["fps", "codec", "compression", "bitrate", "quality", "preset"]) {
+  for (const key of ["fps", "height", "codec", "compression", "bitrate", "quality", "preset"]) {
     $(key).value = encoding[key];
   }
   updateCaptureDetails();
@@ -757,7 +759,7 @@ for (const id of ["start", "end"]) {
   };
 }
 $("export").onclick = () => current && act("trim", { name: current.name,
-  gains: clipGains, start: Number($("start").value), end: Number($("end").value) });
+  gains: clipGains, codec: exportCodec, start: Number($("start").value), end: Number($("end").value) });
 
 async function poll() {
   try {
@@ -892,4 +894,14 @@ function shortcutKey(event) {
   if (code === "NumpadEnter") return "Enter";
   const named = new Set(["Backspace", "Tab", "Enter", "Pause", "CapsLock", "Space", "PageUp", "PageDown", "End", "Home", "ArrowLeft", "ArrowUp", "ArrowRight", "ArrowDown", "PrintScreen", "Insert", "Delete", "NumpadMultiply", "NumpadAdd", "NumpadSubtract", "NumpadDecimal", "NumpadDivide", "NumLock", "ScrollLock", "Semicolon", "Equal", "Comma", "Minus", "Period", "Slash", "Backquote", "BracketLeft", "Backslash", "BracketRight", "Quote", "IntlBackslash"]);
   return named.has(code) ? code : undefined;
+}
+
+for (const button of document.querySelectorAll("[data-export-codec]")) {
+  button.onclick = () => {
+    exportCodec = button.dataset.exportCodec;
+    const label = {h264:"H.264", hevc:"H.265", av1:"AV1"}[exportCodec];
+    $("export").textContent = `Export ${label} trim`;
+    for (const choice of document.querySelectorAll("[data-export-codec]")) choice.setAttribute("aria-pressed", choice === button);
+    $("export-codecs").open = false;
+  };
 }

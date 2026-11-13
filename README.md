@@ -88,3 +88,10 @@ Keybinds can use single letters, numbers, function keys, Space, arrows, navigati
 ### Overlay capture visibility (0.3.13)
 
 General / Capture feedback / Stream-proof overlay is enabled by default. Turn it off to allow display-capture tools to include the feedback overlay. Capture methods that only record a game's window may still omit it. Changing this setting dismisses any current notification and applies to the next one. The preference survives restarts; older settings retain protected overlays. Disabling Capture overlay still destroys the overlay window.
+
+
+### Resolution and export quality (0.3.14)
+
+Video settings offer Native, 720p, 1080p, 1440p, and 2160p capture. These are maximum heights: aspect ratio is retained and smaller screens are not upscaled. Resolution applies to both short/long clips and recordings, and requires stopping capture before applying. Native keeps the original GPU capture path; resizing downloads frames for a CPU bilinear resize before NVENC encoding, so it adds CPU work.
+
+The export split button selects H.264, H.265 / HEVC, or AV1 for trimmed exports. Exports retain source dimensions/frame rate and mix the current audio channel volumes into AAC stereo. Unsupported encoders report an error without modifying the source. Make H.264 copy remains capped at 1080p/60 for compatibility. Compatibility playback previews now use up to 1080p/60, VP8 at 8 Mbps/CRF 8, and larger thumbnails. Old preview caches are invalidated. Preview generation remains on demand with two encoding threads.

@@ -781,16 +781,23 @@ impl Recorder {
     } else {
       command.args(["-map", "0:a:0?"]);
     }
-    command.args([
-      "-vf", r"fps=min(source_fps\,60),scale=w=min(1920\,iw):h=min(1080\,ih):force_original_aspect_ratio=decrease:force_divisible_by=2,format=yuv420p",
-      "-c:v", "h264_nvenc", "-preset", "p1", "-profile:v", "high", "-b:v", "12M",
-      "-c:a", "aac", "-b:a", "160k", "-ac", "2", "-ar", "48000", "-movflags", "+faststart",
-    ]);
-    Self::publish(media, "mp4", "", command)?;
-    Ok(if trim {
-      "H.264 trim saved"
+    let codec: Codec = if trim {
+      serde_json::from_value(body.get("codec").cloned().unwrap_or(json!("h264")))
+        .context("Choose H.264, H.265, or AV1 for export")?
+    } else { Codec::H264 };
+    let encoder = match codec { Codec::H264 => "h264_nvenc", Codec::Hevc => "hevc_nvenc", Codec::Av1 => "av1_nvenc" };
+    let filter = if trim {
+      "scale=trunc(iw/2)*2:trunc(ih/2)*2,format=yuv420p"
     } else {
-      "H.264 copy saved to Clips"
+      r"fps=min(source_fps\,60),scale=w=min(1920\,iw):h=min(1080\,ih):force_original_aspect_ratio=decrease:force_divisible_by=2,format=yuv420p"
+    };
+    command.args(["-vf", filter, "-c:v", encoder, "-preset", "p4", "-rc", "vbr", "-cq", "20", "-b:v", "0", "-tag:v", codec.mp4_tag()]);
+    if codec == Codec::H264 { command.args(["-profile:v", "high"]); }
+    command.args(["-c:a", "aac", "-b:a", "192k", "-ac", "2", "-ar", "48000", "-movflags", "+faststart"]);
+    Self::publish(media, "mp4", "", command)?;
+    Ok(match (codec, trim) {
+      (Codec::H264, true) => "H.264 trim saved", (Codec::H264, false) => "H.264 copy saved to Clips",
+      (Codec::Hevc, _) => "H.265 export saved", (Codec::Av1, _) => "AV1 export saved",
     })
   }
 

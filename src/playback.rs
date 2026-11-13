@@ -16,6 +16,7 @@ pub static VIDEO_JOBS: Mutex<()> = Mutex::new(());
 pub fn cached_path(root: &Path, source: &Path, extension: &str) -> Result<PathBuf> {
   let info = source.metadata().context("Clip not found")?;
   let mut key = DefaultHasher::new();
+  "preview-1080-v2".hash(&mut key);
   source.hash(&mut key);
   info.len().hash(&mut key);
   info.modified()?.hash(&mut key);
@@ -69,11 +70,11 @@ pub fn thumbnail(root: &Path, source: &Path) -> Result<PathBuf> {
           "1",
           "-an",
           "-vf",
-          "scale=320:180:force_original_aspect_ratio=decrease",
+          "scale=640:360:force_original_aspect_ratio=decrease",
           "-threads",
           "1",
           "-q:v",
-          "4",
+          "2",
           "-update",
           "1",
         ]);
@@ -117,9 +118,9 @@ pub fn prepare(root: &Path, source: &Path, force: bool) -> Result<bool> {
     let mut command = ffmpeg();
     command.args(["-nostdin", "-threads", "2", "-i"]).arg(source).args([
       "-map", "0:v:0", "-map", "0:a:0?",
-      "-vf", r"fps=min(source_fps\,30),scale=w=min(854\,iw):h=min(480\,ih):force_original_aspect_ratio=decrease:force_divisible_by=2,format=yuv420p",
-      "-c:v", "libvpx", "-deadline", "realtime", "-cpu-used", "8", "-threads", "2",
-      "-crf", "12", "-b:v", "1400k", "-c:a", "libopus", "-b:a", "96k",
+      "-vf", r"fps=min(source_fps\,60),scale=w=min(1920\,iw):h=min(1080\,ih):force_original_aspect_ratio=decrease:force_divisible_by=2,format=yuv420p",
+      "-c:v", "libvpx", "-deadline", "realtime", "-cpu-used", "4", "-threads", "2",
+      "-crf", "8", "-b:v", "8000k", "-c:a", "libopus", "-b:a", "96k",
     ]);
     render(command, &path)?;
     // Keep only the latest preview video. Thumbnails are small and stay cached.

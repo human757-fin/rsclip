@@ -265,3 +265,12 @@ button:disabled { opacity: .55; cursor: default; }
 #clip-mixer input:not([type=range]), #clip-mixer select { min-width: 0; width: 100%; }
 #clip-mix-status { color: var(--muted); font-size: 12px; }
 .workspace aside { max-height: calc(100dvh - 310px); overflow-y: auto; }
+
+.export-split { display: flex; position: relative; width: 100%; }
+.export-split > button { flex: 1; min-width: 0; border-radius: 7px 0 0 7px; }
+.export-split > details { flex: 0 0 36px; position: relative; }
+.export-split summary { height: 100%; display: flex; justify-content: center; align-items: center; padding: 8px; border-radius: 0 7px 7px 0; border-left: 0; }
+.export-split summary .chevron { margin: 0; }
+.export-split .panel { top: auto; bottom: calc(100% + 6px); right: 0; min-width: 170px; display: grid; gap: 4px; }
+.export-split .panel button { text-align: left; border-color: transparent; }
+.export-split .panel button[aria-pressed=true] { color: #e8f1ff; background: #304766; }
