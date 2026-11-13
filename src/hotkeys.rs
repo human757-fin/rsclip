@@ -17,6 +17,7 @@ const ACTIONS: [&str; 5] = ["save", "toggle", "screenshot", "save_long", "record
 const ALT: u32 = 1;
 const CTRL: u32 = 2;
 const SHIFT: u32 = 4;
+const WIN: u32 = 8;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 struct Binding {
@@ -26,21 +27,41 @@ struct Binding {
 
 impl Binding {
   fn vk(&self) -> Result<u32> {
-    if self.modifiers == 0 || self.modifiers & !(ALT | CTRL | SHIFT) != 0 {
-      bail!("Use Ctrl, Alt, or Shift with a letter, number, or function key.");
+    if self.modifiers & !(ALT | CTRL | SHIFT | WIN) != 0 {
+      bail!("Invalid shortcut modifiers.");
     }
     if let [key @ (b'A'..=b'Z' | b'0'..=b'9')] = self.key.as_bytes() {
       return Ok(u32::from(*key));
+    }
+    let named = match self.key.as_str() {
+      "Backspace" => Some(0x08), "Tab" => Some(0x09), "Enter" => Some(0x0d),
+      "Pause" => Some(0x13), "CapsLock" => Some(0x14),
+      "Space" => Some(0x20), "PageUp" => Some(0x21), "PageDown" => Some(0x22),
+      "End" => Some(0x23), "Home" => Some(0x24), "ArrowLeft" => Some(0x25),
+      "ArrowUp" => Some(0x26), "ArrowRight" => Some(0x27), "ArrowDown" => Some(0x28),
+      "PrintScreen" => Some(0x2c), "Insert" => Some(0x2d), "Delete" => Some(0x2e),
+      "NumpadMultiply" => Some(0x6a), "NumpadAdd" => Some(0x6b),
+      "NumpadSubtract" => Some(0x6d), "NumpadDecimal" => Some(0x6e), "NumpadDivide" => Some(0x6f),
+      "NumLock" => Some(0x90), "ScrollLock" => Some(0x91),
+      "Semicolon" => Some(0xba), "Equal" => Some(0xbb), "Comma" => Some(0xbc),
+      "Minus" => Some(0xbd), "Period" => Some(0xbe), "Slash" => Some(0xbf),
+      "Backquote" => Some(0xc0), "BracketLeft" => Some(0xdb), "Backslash" => Some(0xdc),
+      "BracketRight" => Some(0xdd), "Quote" => Some(0xde), "IntlBackslash" => Some(0xe2),
+      _ => None,
+    };
+    if let Some(vk) = named { return Ok(vk); }
+    if let Some(digit) = self.key.strip_prefix("Numpad") {
+      if let [digit @ b'0'..=b'9'] = digit.as_bytes() { return Ok(0x60 + u32::from(*digit - b'0')); }
     }
     let Some(number) = self
       .key
       .strip_prefix('F')
       .and_then(|key| key.parse::<u32>().ok())
     else {
-      bail!("Choose a letter, number, or function key.");
+      bail!("This key is not supported by Windows global shortcuts.");
     };
     if !(1..=24).contains(&number) || self.key != format!("F{number}") {
-      bail!("Choose a letter, number, or function key.");
+      bail!("This key is not supported by Windows global shortcuts.");
     }
     if number == 12 {
       bail!("Windows reserves F12. Choose a different key.");
@@ -50,7 +71,7 @@ impl Binding {
 
   fn label(&self) -> String {
     let mut parts = Vec::new();
-    for (modifier, label) in [(CTRL, "Ctrl"), (ALT, "Alt"), (SHIFT, "Shift")] {
+    for (modifier, label) in [(CTRL, "Ctrl"), (ALT, "Alt"), (SHIFT, "Shift"), (WIN, "Win")] {
       if self.modifiers & modifier != 0 {
         parts.push(label);
       }
@@ -311,7 +332,7 @@ mod tests {
     assert_eq!(binding.vk().unwrap(), 0x4b);
     assert_eq!(binding.label(), "Ctrl + Shift + K");
     assert_eq!(defaults()[0].vk().unwrap(), 0x79);
-    for key in ["F12", "F25", "F01", "Escape"] {
+    for key in ["F12", "F25", "F01", "Numpad10", "Unknown", "Escape"] {
       assert!(Binding {
         key: key.into(),
         ..binding.clone()
@@ -319,12 +340,12 @@ mod tests {
       .vk()
       .is_err());
     }
-    assert!(Binding {
-      modifiers: 0,
-      ..binding
+    for (key, vk) in [("K", 0x4b), ("F6", 0x75), ("Space", 0x20), ("ArrowLeft", 0x25), ("Numpad3", 0x63), ("Semicolon", 0xba)] {
+      let plain = Binding { modifiers: 0, key: key.into() };
+      assert_eq!(plain.vk().unwrap(), vk);
+      assert_eq!(plain.label(), key);
     }
-    .vk()
-    .is_err());
+    assert!(Binding { modifiers: 16, ..binding }.vk().is_err());
   }
 
   #[test]
@@ -342,7 +363,8 @@ mod tests {
     let migrated = load(&path).unwrap();
     assert_eq!(migrated[..4], bindings[..4]);
     assert_eq!(migrated[4].label(), "Alt + F6");
-    bindings[0].key = "K".into();
+    bindings[0].key = "Space".into();
+    bindings[0].modifiers = 0;
     save(&path, &bindings).unwrap();
     assert_eq!(load(&path).unwrap(), bindings);
     bindings[1] = bindings[0].clone();

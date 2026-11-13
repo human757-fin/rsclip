@@ -18,7 +18,7 @@ Check your FFmpeg build with `ffmpeg -hide_banner -h filter=ddagrab` and `ffmpeg
 | Save long clip | Alt + F11 |
 | Take a screenshot | Alt + F8 |
 
-Open **Keybinds**, select a shortcut, then press its replacement. Use Ctrl, Alt, or Shift with a letter, number, or function key. Press Esc to cancel. Shortcuts are saved across restarts.
+Open **Keybinds**, select a shortcut, then press its replacement. Single keys or combinations with Ctrl, Alt, Shift, or Win are accepted. Press Esc to cancel. Shortcuts are saved across restarts.
 
 ## Capture settings
 
@@ -78,3 +78,8 @@ Setup now probes H.264 NVENC using one synthetic 1280x720 frame. When FFmpeg rep
 ### Desktop fixes (0.3.10)
 
 The NVENC probe now uses 720p YUV420 video instead of a 64x64 frame, avoiding hardware minimum-size failures. A Windows session-scoped instance guard runs before recorder initialization: another launch signals the running app to show and focus its window, then exits without starting capture or setup workers. Slider styling now includes filled tracks, defined handles, and keyboard focus for audio, trim, and playback controls.
+
+
+### Flexible keybinds (0.3.12)
+
+Keybinds can use single letters, numbers, function keys, Space, arrows, navigation keys, numpad keys, and punctuation, with optional modifiers. Escape remains reserved for cancelling shortcut editing. Windows-reserved keys and shortcuts already registered by another app are rejected. Duplicate rsclip bindings are also rejected; accepted bindings persist across restarts.

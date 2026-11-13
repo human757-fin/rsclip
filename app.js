@@ -558,7 +558,7 @@ for (const [action, label] of Object.entries(keyLabels)) {
     }
     if (!await setShortcutListening(true)) return;
     editingKey = action;
-    keyFeedback("");
+    keyFeedback("Press a key or combination. Esc cancels.");
     renderKeybinds();
   };
   keyButtons.set(action, button);
@@ -572,10 +572,6 @@ keyPanel.addEventListener("toggle", () => {
 
 document.addEventListener("keydown", async event => {
   if (!editingKey || !keyPanel.open) return;
-  if (event.key === "Tab") {
-    cancelKeyEdit();
-    return;
-  }
   event.preventDefault();
   event.stopImmediatePropagation();
   if (event.key === "Escape") {
@@ -583,11 +579,10 @@ document.addEventListener("keydown", async event => {
     return;
   }
   if (busy || event.repeat || ["Control", "Alt", "Shift", "Meta"].includes(event.key)) return;
-  const modifiers = Number(event.altKey) | (Number(event.ctrlKey) << 1) | (Number(event.shiftKey) << 2);
-  const code = event.code;
-  const key = /^(Key[A-Z]|Digit[0-9])$/.test(code) ? code.slice(-1) : event.key;
-  if (event.metaKey || !modifiers || !/^([A-Z0-9]|F([1-9]|1[0-9]|2[0-4]))$/.test(key)) {
-    keyFeedback("Use Ctrl, Alt, or Shift with a letter, number, or function key.", true);
+  const modifiers = Number(event.altKey) | (Number(event.ctrlKey) << 1) | (Number(event.shiftKey) << 2) | (Number(event.metaKey) << 3);
+  const key = shortcutKey(event);
+  if (!key) {
+    keyFeedback("This key cannot be used as a Windows global shortcut.", true);
     return;
   }
   const action = editingKey;
@@ -889,3 +884,12 @@ document.addEventListener("input", event => {
   if (event.target.matches('input[type="range"]')) paintSlider(event.target);
 });
 document.querySelectorAll('input[type="range"]').forEach(paintSlider);
+
+function shortcutKey(event) {
+  const code = event.code;
+  if (/^(Key[A-Z]|Digit[0-9])$/.test(code)) return code.slice(-1);
+  if (/^(F([1-9]|1[0-9]|2[0-4])|Numpad[0-9])$/.test(code)) return code;
+  if (code === "NumpadEnter") return "Enter";
+  const named = new Set(["Backspace", "Tab", "Enter", "Pause", "CapsLock", "Space", "PageUp", "PageDown", "End", "Home", "ArrowLeft", "ArrowUp", "ArrowRight", "ArrowDown", "PrintScreen", "Insert", "Delete", "NumpadMultiply", "NumpadAdd", "NumpadSubtract", "NumpadDecimal", "NumpadDivide", "NumLock", "ScrollLock", "Semicolon", "Equal", "Comma", "Minus", "Period", "Slash", "Backquote", "BracketLeft", "Backslash", "BracketRight", "Quote", "IntlBackslash"]);
+  return named.has(code) ? code : undefined;
+}
