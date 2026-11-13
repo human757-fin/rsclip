@@ -46,7 +46,7 @@ fn run() -> Result<()> {
   let Some(mut instance) = instance::Instance::acquire()? else { return Ok(()); };
   let (feedback, feedback_events) = mpsc::channel();
   let recorder = Recorder::new(feedback)?;
-  let start_hidden = recorder.starts_hidden();
+  let start_hidden = recorder.starts_hidden() && !std::env::args().any(|arg| arg == "--show-window");
   let recorder = Arc::new(Mutex::new(recorder));
   maintenance::start(recorder.clone());
   let listener = TcpListener::bind(("127.0.0.1", 0))?;

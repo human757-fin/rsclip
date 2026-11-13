@@ -65,7 +65,7 @@ Saved clips and recordings include a stereo playback mix and the isolated tracks
 
 When FFmpeg is missing, rsclip downloads the Gyan essentials Windows build over HTTPS, verifies its publisher SHA256 checksum, and installs ffmpeg/ffprobe under `%LOCALAPPDATA%\rsclip\tools\ffmpeg`. No administrator rights or PATH changes are needed. The download runs in the background. Desktop capture and NVENC support are checked before installation; GPU compatibility checks still apply. The replay buffer starts when ready if enabled.
 
-At launch, rsclip checks the latest stable GitHub Release from `human757-fin/rsclip`. A newer x64 NSIS installer downloads in the background and is checked against GitHub's SHA256 asset digest. General / Software offers Check for updates and Install update and quit. Stop manual recording before installing, then reopen rsclip afterward. Network failures leave the installed app usable. Updates require a public repository with a published NSIS asset and GitHub digest; no GitHub credentials are stored.
+At launch, rsclip checks the latest stable GitHub Release from `human757-fin/rsclip`. A newer x64 NSIS installer downloads in the background and is checked against GitHub's SHA256 asset digest. General / Software offers Check for updates and Install update and restart. Stop manual recording before installing, rsclip reopens automatically after successful installation. Network failures leave the installed app usable. Updates require a public repository with a published NSIS asset and GitHub digest; no GitHub credentials are stored.
 
 Global shortcuts are suspended while the shortcut editor listens. Escape, closing the menu, or losing focus restores them; a timeout also restores them if the editor disconnects.
 
@@ -95,3 +95,8 @@ General / Capture feedback / Stream-proof overlay is enabled by default. Turn it
 Video settings offer Native, 720p, 1080p, 1440p, and 2160p capture. These are maximum heights: aspect ratio is retained and smaller screens are not upscaled. Resolution applies to both short/long clips and recordings, and requires stopping capture before applying. Native keeps the original GPU capture path; resizing downloads frames for a CPU bilinear resize before NVENC encoding, so it adds CPU work.
 
 The export split button selects H.264, H.265 / HEVC, or AV1 for trimmed exports. Exports retain source dimensions/frame rate and mix the current audio channel volumes into AAC stereo. Unsupported encoders report an error without modifying the source. Make H.264 copy remains capped at 1080p/60 for compatibility. Compatibility playback previews now use up to 1080p/60, VP8 at 8 Mbps/CRF 8, and larger thumbnails. Old preview caches are invalidated. Preview generation remains on demand with two encoding threads.
+
+
+### Reopen after updates (0.3.15)
+
+In-app NSIS updates now request restart on successful installation. The installer launches the new executable from its installed location with `--show-window`, so an update opens the main window even when normal startup is configured to use the tray. The saved Start hidden setting still applies to normal launches. This takes effect for updates initiated by 0.3.15 or newer; upgrading from an older updater may require reopening once manually.

@@ -145,7 +145,7 @@ pub fn install() -> Result<()> {
     bail!("Update checksum changed. Check for updates again.");
   }
   Command::new(setup)
-    .arg("/S")
+    .args(["/S", "/R", "/ARGS", "--show-window"])
     .spawn()
     .context("Could not launch update installer")?;
   Ok(())
