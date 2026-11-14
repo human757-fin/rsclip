@@ -14,6 +14,7 @@ let playbackRequest = 0;
 let nativeFrameTimer;
 let nativeFrameSeen = false;
 let clipDuration = 0;
+let trimReady = false;
 let playbackOffset = 0;
 let sectionPlayback = false;
 let activePreviewGains;
@@ -124,15 +125,15 @@ function timecode(value) {
 function updateTimeline() {
   const duration = clipDuration || video.duration;
   if (!Number.isFinite(duration) || duration <= 0) return;
-  const start = Number($("start").value);
-  const end = Number($("end").value);
+  const start = trimReady ? Number($("start").value) : 0;
+  const end = trimReady ? Number($("end").value) : duration;
   $("time").textContent = timecode(playbackOffset + video.currentTime) + " / " + timecode(duration);
   $("selection").textContent = timecode(start) + " – " + timecode(end);
   $("range").style.left = (start / duration * 100) + "%";
   $("range").style.width = ((end - start) / duration * 100) + "%";
   $("seek").value = playbackOffset + video.currentTime;
   for (const id of ["seek", "start", "end"]) paintSlider($(id));
-  $("export").disabled = end <= start;
+  $("export").disabled = !trimReady || end <= start;
 }
 
 function openFile(file) {
@@ -144,6 +145,7 @@ function openFile(file) {
   playbackVersion++;
   previewRequested = false;
   nativeFrameSeen = false;
+  trimReady = false;
   clipDuration = 0; playbackOffset = 0; sectionPlayback = false; activePreviewGains = undefined; prefetchedSection = -1;
   playbackStatus("");
   const clip = file.name.endsWith(".mp4");
@@ -758,9 +760,12 @@ video.onloadedmetadata = () => {
   const duration = clipDuration || video.duration;
   $("duration").textContent = timecode(duration);
   $("resolution").textContent = video.videoWidth + " x " + video.videoHeight + (previewRequested ? " preview" : "");
+  const start = trimReady ? (mixResume?.start ?? Number($("start").value)) : 0;
+  const end = trimReady ? (mixResume?.end ?? Number($("end").value)) : duration;
   for (const id of ["seek", "start", "end"]) $(id).max = duration;
-  $("start").value = mixResume?.start ?? 0;
-  $("end").value = mixResume?.end ?? duration;
+  $("start").value = Math.max(0, Math.min(start, duration));
+  $("end").value = Math.max(Number($("start").value), Math.min(end, duration));
+  trimReady = true;
   if (mixResume) {
     video.currentTime = Math.max(0, Math.min(mixResume.time - playbackOffset, video.duration));
     if (mixResume.playing !== false) video.play().catch(error => playbackStatus(error.message));
@@ -986,7 +991,7 @@ function prefetchSection() {
 function fallbackPlayback() {
   if (!current) return;
   const time = playbackOffset + (Number.isFinite(video.currentTime) ? video.currentTime : 0);
-  if (video.readyState >= 1) {
+  if (video.readyState >= 1 && trimReady) {
     mixResume = {time, start:Number($("start").value), end:Number($("end").value), playing:!video.paused};
   }
   preparePlayback(current, true, activePreviewGains, time);

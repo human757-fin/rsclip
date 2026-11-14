@@ -68,6 +68,10 @@ jobs:
         if: steps.version.outputs.build == 'true'
         run: cargo test --locked --release
 
+      - name: Test timeline selection
+        if: steps.version.outputs.build == 'true'
+        run: node tests/timeline.cjs
+
       - name: Build NSIS and MSI
         if: steps.version.outputs.build == 'true'
         run: pnpm dlx @tauri-apps/cli@2.12.4 build --ci --bundles nsis,msi -- --locked
