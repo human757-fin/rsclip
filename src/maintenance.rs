@@ -45,6 +45,7 @@ fn powershell(script: &str) -> Result<String> {
     .output()
     .context("Could not start Windows download service")?;
   if !output.status.success() {
+    crate::diagnostics::record("maintenance", &String::from_utf8_lossy(&output.stderr));
     bail!("{}", String::from_utf8_lossy(&output.stderr).trim());
   }
   Ok(String::from_utf8_lossy(&output.stdout).trim().to_owned())
@@ -72,6 +73,7 @@ fn nvenc_probe() -> Result<()> {
       "color=size=1280x720:rate=30,format=yuv420p", "-frames:v", "1", "-c:v", "h264_nvenc", "-f", "null", "-"])
     .output().context("Could not test NVIDIA encoding")?;
   if !output.status.success() {
+    crate::diagnostics::record("maintenance", &String::from_utf8_lossy(&output.stderr));
     bail!("{}", String::from_utf8_lossy(&output.stderr).trim());
   }
   Ok(())
@@ -106,6 +108,7 @@ pub fn setup_ffmpeg(recorder: &Mutex<crate::recorder::Recorder>) {
       recorder.lock().unwrap().refresh_ffmpeg();
     }
     Err(error) => {
+      crate::diagnostics::record("FFmpeg setup", &format!("{error:#}"));
       status().lock().unwrap()["ffmpeg"] = json!(format!("FFmpeg setup failed: {error:#}"));
     }
   }

@@ -301,6 +301,7 @@ pub fn monitor(recorder: Arc<Mutex<Recorder>>, commands: mpsc::Receiver<Command>
       {
         let mut recorder = recorder.lock().unwrap();
         if let Err(error) = recorder.act(ACTIONS[index], &Value::Null) {
+          crate::diagnostics::record("hotkey action", &format!("{error:#}"));
           recorder.notice = format!("{error:#}");
         }
       }

@@ -3,6 +3,7 @@
 mod app_audio;
 mod audio;
 mod desktop;
+mod diagnostics;
 mod hotkeys;
 mod instance;
 mod maintenance;
@@ -33,7 +34,10 @@ use windows::{
 };
 
 fn main() {
+  let default_hook = std::panic::take_hook();
+  std::panic::set_hook(Box::new(move |info| { diagnostics::record("panic", &info.to_string()); default_hook(info); }));
   if let Err(error) = run() {
+    diagnostics::record("startup", &format!("{error:#}"));
     let message: Vec<_> = format!("rsclip could not start.\n\n{error:#}")
       .encode_utf16()
       .chain(Some(0))

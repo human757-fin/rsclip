@@ -137,6 +137,7 @@ impl Recorder {
     fs::create_dir_all(&default_media)?;
     let general_path = data.join("general.json");
     let mut general = General::load(&general_path).unwrap_or_default();
+    let logging_warning = crate::diagnostics::configure(data.join("logs/rsclip-errors.log"), general.error_logging).err().map(|e| format!("Could not open error log: {e:#}"));
     let mut launch_on_login = desktop::launches_on_login();
     let startup_warning = if general.launch_on_login == Some(true) {
       match desktop::set_launch_on_login(true) {
@@ -199,12 +200,14 @@ impl Recorder {
       recording: None,
       recovery: Recovery::default(),
       feedback,
-      notice: startup_warning.unwrap_or(notice),
+      notice: startup_warning.or(logging_warning).unwrap_or(notice),
       error: String::new(),
       hotkey_error: String::new(),
       hotkeys: json!({}),
     })
   }
+
+  pub fn log_path(&self) -> PathBuf { self.data.join("logs/rsclip-errors.log") }
 
   pub fn playback_cache(&self) -> PathBuf {
     self.data.join("playback-cache")
@@ -288,13 +291,16 @@ impl Recorder {
       Some("captureOverlay") => general.capture_overlay = enabled,
       Some("overlayStreamProof") => general.overlay_stream_proof = enabled,
       Some("saveSounds") => general.save_sounds = enabled,
+      Some("errorLogging") => general.error_logging = enabled,
       _ => bail!("Unknown general setting."),
     }
     let startup_changed = setting == Some("launchOnLogin");
     if startup_changed {
       desktop::set_launch_on_login(enabled).context("Could not update Windows startup")?;
     }
+    if setting == Some("errorLogging") { crate::diagnostics::configure(self.log_path(), enabled)?; }
     if let Err(error) = general.save(&self.data.join("general.json")) {
+      if setting == Some("errorLogging") { let _ = crate::diagnostics::configure(self.log_path(), self.general.error_logging); }
       if startup_changed {
         let _ = desktop::set_launch_on_login(self.launch_on_login);
       }
@@ -590,6 +596,7 @@ impl Recorder {
       self.notice = "Replay buffer restarted. The replay history is filling again.".into();
       self.status_notification("Buffer restarted");
     }
+    if !self.error.is_empty() { crate::diagnostics::record("capture", &self.error); }
     if self.active() && self.recovery.running_since.is_some_and(|since| now.saturating_duration_since(since) >= Duration::from_secs(30)) {
       self.recovery.attempts = 0;
     }
@@ -972,8 +979,8 @@ impl Recorder {
     json!({
       "active": self.active(), "recovering": self.recovery.next.is_some() || self.recovery.pending_confirmation, "recording": self.recording.is_some(), "settings": self.settings, "error": self.error,
       "mixer": self.mixer_settings(), "audioSources": *self.sources.lock().unwrap(),
-      "general": { "autoBuffer": self.general.auto_buffer, "startHidden": self.general.start_hidden, "saveSounds": self.general.save_sounds, "captureOverlay": self.general.capture_overlay, "overlayStreamProof": self.general.overlay_stream_proof, "launchOnLogin": self.launch_on_login },
-      "notice": self.notice, "hotkeyError": self.hotkey_error, "hotkeys": self.hotkeys, "available": self.ffmpeg, "mediaFolder": self.media.to_string_lossy()
+      "general": { "autoBuffer": self.general.auto_buffer, "startHidden": self.general.start_hidden, "saveSounds": self.general.save_sounds, "captureOverlay": self.general.capture_overlay, "overlayStreamProof": self.general.overlay_stream_proof, "errorLogging": self.general.error_logging, "launchOnLogin": self.launch_on_login },
+      "notice": self.notice, "hotkeyError": self.hotkey_error, "hotkeys": self.hotkeys, "available": self.ffmpeg, "mediaFolder": self.media.to_string_lossy(), "errorLog": self.log_path().to_string_lossy()
     })
   }
 

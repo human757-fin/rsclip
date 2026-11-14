@@ -201,7 +201,12 @@ fn device_id(device: &IMMDevice) -> Result<String> {
 fn refresh_endpoint(devices: &IMMDeviceEnumerator, flow: EDataFlow, stream: &mut Option<Stream>) {
   let current = unsafe { devices.GetDefaultAudioEndpoint(flow, eMultimedia) }.ok().and_then(|d| device_id(&d).ok());
   if stream.as_ref().and_then(|s| s.endpoint_id.as_ref()) != current.as_ref() { *stream = None; }
-  if stream.is_none() { *stream = Stream::endpoint(devices, flow).ok(); }
+  if stream.is_none() {
+    match Stream::endpoint(devices, flow) {
+      Ok(reopened) => *stream = Some(reopened),
+      Err(error) => crate::diagnostics::record("audio endpoint", &format!("flow {}: {error:#}", flow.0)),
+    }
+  }
 }
 
 struct AudioOutput {
@@ -221,7 +226,8 @@ impl AudioOutput {
           Ok(()) => {
             if self.retries.remove(id).is_some() && self.retries.is_empty() { let _ = self.events.send(AudioEvent::TracksRecovered); }
           }
-          Err(_) => {
+          Err(error) => {
+            crate::diagnostics::record("audio track", &format!("{id}: {error:#}"));
             if self.retries.is_empty() { let _ = self.events.send(AudioEvent::TracksLost); }
             self.retries.insert(id.into(), Instant::now() + Duration::from_secs(1));
           }
@@ -321,7 +327,8 @@ impl CaptureMixer {
         Ok(pending) => {
           self.pending.insert(app.pid, (app, pending, Instant::now()));
         }
-        Err(_) => {
+        Err(error) => {
+          crate::diagnostics::record("audio activation", &format!("{}: {error:#}", app.name));
           self.failed.insert(app.pid, Instant::now() + Duration::from_secs(3));
         }
       }
@@ -346,21 +353,24 @@ impl CaptureMixer {
           self.health.set(&app.id, false);
           self.apps.insert(pid, (app, stream));
         }
-        Err(_) => {
+        Err(error) => {
+          crate::diagnostics::record("audio activation", &format!("{}: {error:#}", app.name));
           self.failed.insert(pid, Instant::now() + Duration::from_secs(3));
         }
       }
     }
     let health = &mut self.health;
     self.apps.retain(|_, (source, stream)| {
-      let ok = stream.collect().is_ok();
+      let result = stream.collect();
+      if let Err(error) = &result { crate::diagnostics::record("app audio", &format!("{}: {error:#}", source.name)); }
+      let ok = result.is_ok();
       if !ok { health.set(&source.id, true); }
       ok
     });
     if self
       .desktop
       .as_mut()
-      .is_some_and(|stream| stream.collect().is_err())
+      .is_some_and(|stream| match stream.collect() { Ok(()) => false, Err(error) => { crate::diagnostics::record("audio stream", &format!("{error:#}")); true } })
     {
       self.desktop = None;
       self.health.set("desktop", true);
@@ -368,7 +378,7 @@ impl CaptureMixer {
     if self
       .microphone
       .as_mut()
-      .is_some_and(|stream| stream.collect().is_err())
+      .is_some_and(|stream| match stream.collect() { Ok(()) => false, Err(error) => { crate::diagnostics::record("audio stream", &format!("{error:#}")); true } })
     {
       self.microphone = None;
       self.health.set("microphone", true);

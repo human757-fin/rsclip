@@ -44,6 +44,7 @@
       <button id="settings-general" type="button" aria-pressed="true">General</button>
       <button id="settings-video" type="button" aria-pressed="false">Video</button>
       <button id="settings-audio" type="button" aria-pressed="false">Audio</button>
+      <button id="settings-developer" type="button" aria-pressed="false">Developer</button>
     </nav>
     <section id="video-options" class="settings-section" aria-labelledby="capture-title" hidden>
       <h2 id="capture-title">Capture</h2>
@@ -123,6 +124,12 @@
           </label>
         </section>
       </div>
+    </div>
+    <div id="developer-options" hidden>
+      <section class="settings-section preference-card"><h2>Diagnostics</h2>
+        <label class="preference"><span class="preference-copy"><strong>Save errors to file</strong><small>Local capture, audio, playback, update, and UI errors. Rotates automatically.</small></span><span class="switch"><input id="errorLogging" type="checkbox" role="switch" disabled><span class="switch-track" aria-hidden="true"></span></span></label>
+        <p id="error-log-path"></p><button id="open-error-log" type="button">Open error log</button>
+      </section>
     </div>
     <div id="audio-options" hidden>
       <div class="settings-cards">

@@ -12,6 +12,12 @@ let playbackVersion = 0;
 let previewRequested = false;
 let playbackRequest = 0;
 let nativeFrameTimer;
+let nativeFrameSeen = false;
+let clipDuration = 0;
+let playbackOffset = 0;
+let sectionPlayback = false;
+let activePreviewGains;
+let prefetchedSection = -1;
 let lastFiles = "";
 let lastKeys = "";
 let editingKey;
@@ -116,15 +122,15 @@ function timecode(value) {
 }
 
 function updateTimeline() {
-  const duration = video.duration;
+  const duration = clipDuration || video.duration;
   if (!Number.isFinite(duration) || duration <= 0) return;
   const start = Number($("start").value);
   const end = Number($("end").value);
-  $("time").textContent = timecode(video.currentTime) + " / " + timecode(duration);
+  $("time").textContent = timecode(playbackOffset + video.currentTime) + " / " + timecode(duration);
   $("selection").textContent = timecode(start) + " – " + timecode(end);
   $("range").style.left = (start / duration * 100) + "%";
   $("range").style.width = ((end - start) / duration * 100) + "%";
-  $("seek").value = video.currentTime;
+  $("seek").value = playbackOffset + video.currentTime;
   for (const id of ["seek", "start", "end"]) paintSlider($(id));
   $("export").disabled = end <= start;
 }
@@ -137,6 +143,8 @@ function openFile(file) {
   $("clip-mixer").hidden = true;
   playbackVersion++;
   previewRequested = false;
+  nativeFrameSeen = false;
+  clipDuration = 0; playbackOffset = 0; sectionPlayback = false; activePreviewGains = undefined; prefetchedSection = -1;
   playbackStatus("");
   const clip = file.name.endsWith(".mp4");
   $("library").hidden = true;
@@ -207,6 +215,7 @@ async function refresh() {
   $("toggle").querySelector("b").textContent = state.active ? "Buffering · Stop" : state.recovering ? "Restarting / Stop" : "Start replay buffer";
   const { seconds, longSeconds } = state.settings;
   $("media-folder").value = state.mediaFolder;
+  $("error-log-path").textContent = state.errorLog || "";
   $("length").textContent = `${formatLength(seconds)} / ${formatLength(longSeconds)}`;
   $("capture").title = tab === "clips" ? `Save the last ${formatLength(seconds)}` : "";
   $("capture-long").title = `Save the last ${formatLength(longSeconds)}`;
@@ -303,7 +312,7 @@ $("capture-settings").onsubmit = async event => {
 };
 
 const settingsPage = $("settings-page");
-const generalKeys = ["launchOnLogin", "autoBuffer", "startHidden", "captureOverlay", "overlayStreamProof", "saveSounds"];
+const generalKeys = ["launchOnLogin", "autoBuffer", "startHidden", "captureOverlay", "overlayStreamProof", "saveSounds", "errorLogging"];
 const videoSettingsVisible = () => !settingsPage.hidden && !$("video-options").hidden;
 const monitorSelect = $("output");
 const previewImage = $("monitor-preview-image");
@@ -418,7 +427,7 @@ function leaveVideoSettings() {
 
 function selectSettingsSection(section) {
   const wasVideo = videoSettingsVisible();
-  for (const tab of ["general", "video", "audio"]) {
+  for (const tab of ["general", "video", "audio", "developer"]) {
     $(`settings-${tab}`).setAttribute("aria-pressed", tab === section);
     $(`${tab}-options`).hidden = tab !== section;
   }
@@ -427,7 +436,7 @@ function selectSettingsSection(section) {
   if (section === "audio" && state) renderMixer();
 }
 
-for (const section of ["general", "video", "audio"]) {
+for (const section of ["general", "video", "audio", "developer"]) {
   $(`settings-${section}`).onclick = () => selectSettingsSection(section);
 }
 
@@ -660,6 +669,8 @@ async function setClipFullscreen(enabled) {
 
 window.pauseClipPlayback = () => {
   video.pause();
+  clearTimeout(nativeFrameTimer);
+  if (mixResume) mixResume.playing = false;
   fullscreenVersion++;
   renderFullscreen(false);
 };
@@ -676,7 +687,7 @@ function setPlaybackReady(ready) {
   for (const id of ["play", "seek", "start", "end", "export"]) $(id).disabled = !ready;
 }
 
-async function preparePlayback(file, force = false, gains) {
+async function preparePlayback(file, force = false, gains, position = 0) {
   if (force) previewRequested = true;
   const version = playbackVersion;
   const request = ++playbackRequest;
@@ -688,11 +699,11 @@ async function preparePlayback(file, force = false, gains) {
     video.src = path(file);
     if (typeof video.requestVideoFrameCallback === "function") {
       const callback = video.requestVideoFrameCallback(() => {
-        if (version === playbackVersion && request === playbackRequest) clearTimeout(nativeFrameTimer);
+        if (version === playbackVersion && request === playbackRequest) { nativeFrameSeen = true; clearTimeout(nativeFrameTimer); }
       });
       nativeFrameTimer = setTimeout(() => {
         video.cancelVideoFrameCallback(callback);
-        if (version === playbackVersion && request === playbackRequest && !previewRequested) preparePlayback(file, true);
+        if (version === playbackVersion && request === playbackRequest && !previewRequested && !video.paused) fallbackPlayback();
       }, 4000);
     }
   }
@@ -701,7 +712,7 @@ async function preparePlayback(file, force = false, gains) {
     const response = await fetch("/api/prepare-playback", {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-Rsclip-Token": state.token },
-      body: JSON.stringify({ name: file.name, force, gains, nativeHevc }),
+      body: JSON.stringify({ name: file.name, force, gains, nativeHevc, position }),
     });
     const result = await response.json();
     if (!response.ok) throw new Error(result.error);
@@ -711,10 +722,16 @@ async function preparePlayback(file, force = false, gains) {
       clipGains = Object.fromEntries(clipChannels.map(([id]) => [id, 100]));
       renderClipMixer();
     }
+    clipDuration = result.duration || video.duration;
+    playbackOffset = result.offset || 0;
+    sectionPlayback = Boolean(result.section);
+    activePreviewGains = gains;
+    prefetchedSection = -1;
     previewRequested = result.proxy;
     const url = result.url || (result.proxy ? "/playback/" + encodeURIComponent(file.name) : path(file));
     if (result.proxy) clearTimeout(nativeFrameTimer);
     if (video.getAttribute("src") !== url) video.src = url;
+    else if (mixResume && video.readyState >= 1) video.onloadedmetadata();
   } catch (error) {
     if (version === playbackVersion && request === playbackRequest) playbackStatus(error.message);
   }
@@ -722,7 +739,7 @@ async function preparePlayback(file, force = false, gains) {
 
 function playbackFailed() {
   if (!current || video.hidden || !video.getAttribute("src")) return;
-  if (!previewRequested) preparePlayback(current, true);
+  if (!previewRequested) fallbackPlayback();
   else {
     video.pause();
     setPlaybackReady(false);
@@ -738,23 +755,31 @@ video.onloadedmetadata = () => {
   }
   playbackStatus("");
   setPlaybackReady(true);
-  $("duration").textContent = timecode(video.duration);
+  const duration = clipDuration || video.duration;
+  $("duration").textContent = timecode(duration);
   $("resolution").textContent = video.videoWidth + " x " + video.videoHeight + (previewRequested ? " preview" : "");
-  for (const id of ["seek", "start", "end"]) $(id).max = video.duration;
+  for (const id of ["seek", "start", "end"]) $(id).max = duration;
   $("start").value = mixResume?.start ?? 0;
-  $("end").value = mixResume?.end ?? video.duration;
+  $("end").value = mixResume?.end ?? duration;
   if (mixResume) {
-    video.currentTime = Math.min(mixResume.time, video.duration);
-    video.play().catch(error => playbackStatus(error.message));
+    video.currentTime = Math.max(0, Math.min(mixResume.time - playbackOffset, video.duration));
+    if (mixResume.playing !== false) video.play().catch(error => playbackStatus(error.message));
     mixResume = undefined;
-    $("clip-mix-status").textContent = "Previewing your mix. Export uses these volumes.";
+    if (activePreviewGains) $("clip-mix-status").textContent = "Previewing your mix. Export uses these volumes.";
   }
-  $("ticks").replaceChildren(...[0, .25, .5, .75, 1].map(fraction => element("span", timecode(video.duration * fraction))));
+  $("ticks").replaceChildren(...[0, .25, .5, .75, 1].map(fraction => element("span", timecode(duration * fraction))));
   updateTimeline();
 };
 video.onerror = playbackFailed;
-video.ontimeupdate = updateTimeline;
-video.onplay = video.onpause = video.onended = () => {
+video.ontimeupdate = () => { updateTimeline(); prefetchSection(); };
+video.onplay = video.onpause = () => {
+  if (!video.paused && !previewRequested && !nativeFrameSeen) {
+    clearTimeout(nativeFrameTimer);
+    const version = playbackVersion;
+    nativeFrameTimer = setTimeout(() => {
+      if (version === playbackVersion && !video.paused && !previewRequested && !nativeFrameSeen) fallbackPlayback();
+    }, 4000);
+  }
   const label = video.paused || video.ended ? "Play" : "Pause";
   $("play").textContent = label;
   $("play").setAttribute("aria-label", label);
@@ -768,15 +793,15 @@ video.onvolumechange = () => {
   $("volume").value = video.volume;
   paintSlider($("volume"));
 };
-$("seek").oninput = () => { video.currentTime = Number($("seek").value); };
+$("seek").onchange = () => seekAbsolute(Number($("seek").value));
 for (const id of ["start", "end"]) {
   $(id).oninput = () => {
     if (Number($("start").value) > Number($("end").value)) {
       $(id).value = $(id === "start" ? "end" : "start").value;
     }
-    video.currentTime = Number($(id).value);
     updateTimeline();
   };
+  $(id).onchange = () => seekAbsolute(Number($(id).value));
 }
 $("export").onclick = () => current && act("trim", { name: current.name,
   gains: clipGains, codec: exportCodec, start: Number($("start").value), end: Number($("end").value) });
@@ -839,8 +864,8 @@ $("clip-preview").onclick = async () => {
   if (!current) return;
   const button = $("clip-preview");
   button.disabled = true;
-  mixResume = {time: video.currentTime, start: Number($("start").value), end: Number($("end").value)};
-  await preparePlayback(current, true, {...clipGains});
+  mixResume = {time: playbackOffset + video.currentTime, start: Number($("start").value), end: Number($("end").value)};
+  await preparePlayback(current, true, {...clipGains}, playbackOffset + video.currentTime);
   button.disabled = false;
 };
 $("clip-preset-save").onclick = async () => {
@@ -924,4 +949,45 @@ for (const button of document.querySelectorAll("[data-export-codec]")) {
     for (const choice of document.querySelectorAll("[data-export-codec]")) choice.setAttribute("aria-pressed", choice === button);
     $("export-codecs").open = false;
   };
+}
+
+$("open-error-log").onclick = () => act("error-log");
+function saveClientError(message) {
+  if (!state?.general?.errorLogging) return;
+  fetch("/api/client-error", {method:"POST", headers:{"Content-Type":"application/json", "X-Rsclip-Token":state.token}, body:JSON.stringify({message:String(message).slice(0,2000)}), keepalive:true}).catch(() => {});
+}
+window.addEventListener("error", event => saveClientError(event.message));
+window.addEventListener("unhandledrejection", event => saveClientError(event.reason?.stack || event.reason));
+
+function seekAbsolute(time, playing = !video.paused) {
+  if (!current) return;
+  time = Math.max(0, Math.min(time, (clipDuration || video.duration) - 0.001));
+  if (!sectionPlayback || (time >= playbackOffset && time < playbackOffset + 12)) {
+    video.currentTime = Math.max(0, Math.min(time - playbackOffset, video.duration - 0.001));
+    updateTimeline();
+    return;
+  }
+  mixResume = {time, start:Number($("start").value), end:Number($("end").value), playing};
+  preparePlayback(current, true, activePreviewGains, time);
+}
+video.onended = () => {
+  const next = playbackOffset + 12;
+  if (sectionPlayback && !document.hidden && next < clipDuration - 0.1) seekAbsolute(next + 0.01, true);
+  else video.onpause();
+};
+function prefetchSection() {
+  if (document.hidden || !sectionPlayback || !current || video.paused || video.duration - video.currentTime > 4) return;
+  const next = playbackOffset + 12;
+  if (next >= clipDuration || prefetchedSection === next) return;
+  prefetchedSection = next;
+  fetch("/api/prepare-playback", {method:"POST", headers:{"Content-Type":"application/json", "X-Rsclip-Token":state.token}, body:JSON.stringify({name:current.name, force:true, gains:activePreviewGains, position:next})}).catch(() => {});
+}
+
+function fallbackPlayback() {
+  if (!current) return;
+  const time = playbackOffset + (Number.isFinite(video.currentTime) ? video.currentTime : 0);
+  if (video.readyState >= 1) {
+    mixResume = {time, start:Number($("start").value), end:Number($("end").value), playing:!video.paused};
+  }
+  preparePlayback(current, true, activePreviewGains, time);
 }

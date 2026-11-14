@@ -152,6 +152,14 @@ fn handle(
         ),
       }
     }
+    (Some("GET"), path) if path.starts_with("/part/") => {
+      let name = &path[6..];
+      if name.len() <= 80 && name.contains(".seg.") && name.ends_with(".mp4") && name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'.') {
+        let root = recorder.lock().unwrap().playback_cache();
+        if let Ok(file) = File::open(root.join(name)) { return media(&mut stream, file, "video/mp4", header("Range")); }
+      }
+      respond(&mut stream, "404 Not Found", "text/plain", b"Playback section not found")
+    }
     (Some("GET"), path) if path.starts_with("/mix/") => {
       let name = path.trim_start_matches("/mix/");
       if name.len() == 41
@@ -257,6 +265,17 @@ fn handle(
           )
         }
       };
+      if path == "/api/client-error" {
+        crate::diagnostics::record("WebView", body["message"].as_str().unwrap_or("Unknown UI error"));
+        return send_json(&mut stream, "200 OK", json!({}));
+      }
+      if path == "/api/error-log" {
+        let path = recorder.lock().unwrap().log_path();
+        return match desktop::reveal_file(&path) {
+          Ok(()) => send_json(&mut stream, "200 OK", json!({})),
+          Err(error) => send_json(&mut stream, "400 Bad Request", json!({"error":format!("Enable error logging first. {error:#}")})),
+        };
+      }
       if path == "/api/ffmpeg-install" {
         let recorder = recorder.clone();
         thread::spawn(move || crate::maintenance::setup_ffmpeg(&recorder));
@@ -316,15 +335,7 @@ fn handle(
           source
             .ok_or_else(|| anyhow::anyhow!("Clip not found."))
             .and_then(|source| {
-              let channels = playback::audio_channels(&playback::probe_audio(&source)?);
-              if body.get("gains").is_some() {
-                let name = playback::mixed_preview(&root, &source, &body)?;
-                Ok(json!({"proxy":true,"url":format!("/mix/{name}"),"channels":channels}))
-              } else {
-                let proxy =
-                  playback::prepare(&root, &source, body["force"].as_bool().unwrap_or(false), body["nativeHevc"].as_bool().unwrap_or(false))?;
-                Ok(json!({"proxy":proxy,"channels":channels}))
-              }
+              playback::section(&root, &source, &body)
             })
         } else {
           Err(anyhow::anyhow!("Clip not found."))
@@ -433,6 +444,7 @@ fn respond(stream: &mut impl Write, status: &str, mime: &str, body: &[u8]) -> io
 }
 
 fn send_json(stream: &mut impl Write, status: &str, value: Value) -> io::Result<()> {
+  if let Some(error) = value["error"].as_str() { crate::diagnostics::record("API", error); }
   respond(
     stream,
     status,

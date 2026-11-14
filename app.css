@@ -274,3 +274,5 @@ button:disabled { opacity: .55; cursor: default; }
 .export-split .panel { top: auto; bottom: calc(100% + 6px); right: 0; min-width: 170px; display: grid; gap: 4px; }
 .export-split .panel button { text-align: left; border-color: transparent; }
 .export-split .panel button[aria-pressed=true] { color: #e8f1ff; background: #304766; }
+
+#error-log-path { overflow-wrap: anywhere; font: 12px Consolas, monospace; margin-bottom: 12px; }
