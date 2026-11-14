@@ -957,6 +957,7 @@ for (const button of document.querySelectorAll("[data-export-codec]")) {
 }
 
 $("open-error-log").onclick = () => act("error-log");
+$("browse-error-log").onclick = () => act("browse-error-log");
 function saveClientError(message) {
   if (!state?.general?.errorLogging) return;
   fetch("/api/client-error", {method:"POST", headers:{"Content-Type":"application/json", "X-Rsclip-Token":state.token}, body:JSON.stringify({message:String(message).slice(0,2000)}), keepalive:true}).catch(() => {});

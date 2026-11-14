@@ -126,9 +126,9 @@
       </div>
     </div>
     <div id="developer-options" hidden>
-      <section class="settings-section preference-card"><h2>Diagnostics</h2>
+      <section class="settings-section preference-card"><header class="preference-heading"><h2>Diagnostics</h2></header>
         <label class="preference"><span class="preference-copy"><strong>Save errors to file</strong><small>Local capture, audio, playback, update, and UI errors. Rotates automatically.</small></span><span class="switch"><input id="errorLogging" type="checkbox" role="switch" disabled><span class="switch-track" aria-hidden="true"></span></span></label>
-        <p id="error-log-path"></p><button id="open-error-log" type="button">Open error log</button>
+        <div class="diagnostics-files"><p id="error-log-path"></p><div class="storage-row"><button id="open-error-log" type="button">Open error log</button><button id="browse-error-log" type="button">Change log folder</button></div></div>
       </section>
     </div>
     <div id="audio-options" hidden>

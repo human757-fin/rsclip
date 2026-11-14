@@ -269,6 +269,16 @@ fn handle(
         crate::diagnostics::record("WebView", body["message"].as_str().unwrap_or("Unknown UI error"));
         return send_json(&mut stream, "200 OK", json!({}));
       }
+      if path == "/api/browse-error-log" {
+        let path = recorder.lock().unwrap().log_path();
+        let folder = desktop::choose_folder(path.parent().unwrap(), "Choose error log folder");
+        let mut recorder = recorder.lock().unwrap();
+        let result = folder.map(|folder| recorder.set_log_folder(folder)).transpose();
+        return match result {
+          Ok(_) => send_json(&mut stream, "200 OK", recorder.state()),
+          Err(error) => send_json(&mut stream, "400 Bad Request", json!({"error":format!("{error:#}")})),
+        };
+      }
       if path == "/api/error-log" {
         let path = recorder.lock().unwrap().log_path();
         return match desktop::reveal_file(&path) {

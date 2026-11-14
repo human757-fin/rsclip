@@ -137,7 +137,7 @@ impl Recorder {
     fs::create_dir_all(&default_media)?;
     let general_path = data.join("general.json");
     let mut general = General::load(&general_path).unwrap_or_default();
-    let logging_warning = crate::diagnostics::configure(data.join("logs/rsclip-errors.log"), general.error_logging).err().map(|e| format!("Could not open error log: {e:#}"));
+    let logging_warning = crate::diagnostics::configure(general.error_log_folder.clone().unwrap_or_else(|| data.join("logs")).join("rsclip-errors.log"), general.error_logging).err().map(|e| format!("Could not open error log: {e:#}"));
     let mut launch_on_login = desktop::launches_on_login();
     let startup_warning = if general.launch_on_login == Some(true) {
       match desktop::set_launch_on_login(true) {
@@ -207,7 +207,27 @@ impl Recorder {
     })
   }
 
-  pub fn log_path(&self) -> PathBuf { self.data.join("logs/rsclip-errors.log") }
+  pub fn log_path(&self) -> PathBuf {
+    self.general.error_log_folder.clone().unwrap_or_else(|| self.data.join("logs")).join("rsclip-errors.log")
+  }
+
+  pub fn set_log_folder(&mut self, folder: PathBuf) -> Result<()> {
+    if !folder.is_absolute() || !folder.is_dir() { bail!("Choose an available log folder."); }
+    let test = folder.join(format!(".rsclip-log-test-{}", Uuid::new_v4()));
+    File::create(&test).context("The selected log folder is not writable")?;
+    fs::remove_file(&test)?;
+    let previous = self.log_path();
+    let mut general = self.general.clone();
+    general.error_log_folder = Some(folder.clone());
+    crate::diagnostics::configure(folder.join("rsclip-errors.log"), general.error_logging)?;
+    if let Err(error) = general.save(&self.data.join("general.json")) {
+      let _ = crate::diagnostics::configure(previous, self.general.error_logging);
+      return Err(error);
+    }
+    self.general = general;
+    self.notice = "Log folder updated".into();
+    Ok(())
+  }
 
   pub fn playback_cache(&self) -> PathBuf {
     self.data.join("playback-cache")

@@ -276,3 +276,6 @@ button:disabled { opacity: .55; cursor: default; }
 .export-split .panel button[aria-pressed=true] { color: #e8f1ff; background: #304766; }
 
 #error-log-path { overflow-wrap: anywhere; font: 12px Consolas, monospace; margin-bottom: 12px; }
+
+.diagnostics-files { padding: 4px 14px 14px; }
+.diagnostics-files #error-log-path { margin: 0 0 10px; }

@@ -98,6 +98,7 @@ pub struct General {
   pub capture_overlay: bool,
   pub overlay_stream_proof: bool,
   pub error_logging: bool,
+  pub error_log_folder: Option<PathBuf>,
   pub media_folder: Option<PathBuf>,
   pub library_folders: Vec<PathBuf>,
   pub launch_on_login: Option<bool>,
@@ -112,6 +113,7 @@ impl Default for General {
       capture_overlay: true,
       overlay_stream_proof: true,
       error_logging: false,
+      error_log_folder: None,
       media_folder: None,
       library_folders: Vec::new(),
       launch_on_login: None,
@@ -248,11 +250,14 @@ mod tests {
   fn stream_proof_defaults_on_and_persists_when_disabled() {
     let legacy: General = serde_json::from_str(r#"{"captureOverlay":true}"#).unwrap();
     assert!(legacy.overlay_stream_proof);
+    assert!(legacy.error_log_folder.is_none());
     let mut config = legacy;
     config.overlay_stream_proof = false;
+    config.error_log_folder = Some(std::env::current_dir().unwrap().join("custom-logs"));
     let restored: General = serde_json::from_slice(&serde_json::to_vec(&config).unwrap()).unwrap();
     assert!(!restored.overlay_stream_proof);
     assert!(restored.capture_overlay);
+    assert_eq!(restored.error_log_folder, config.error_log_folder);
   }
 
   #[test]

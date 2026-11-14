@@ -121,3 +121,8 @@ Playback starts reading the original immediately. When WebView2 reports native H
 Compatibility playback renders only a 12-second section around the requested time, retaining the full original timeline for seeking and export. It prefetches one following section while playing near a boundary. Section transitions can briefly pause if conversion has not finished. Native H.264/HEVC playback continues to use the existing byte-range media route. Per-clip mix previews use the same sections and selected channel gains; exports still read the original. Up to 48 sections / 1 GiB are cached, excluding the section just generated.
 
 Settings / Developer / Save errors to file enables local automatic logging. The tab shows the actual path and an Open error log button. Logs include timestamps and app versions for capture/audio failures, API/preview/update errors, hotkey failures, UI runtime errors and panics. The current file rotates at 1 MiB with two backups; repeated identical messages are suppressed for 30 seconds. Logging defaults off, persists across restarts, and never uploads logs. Errors may include local file paths, app names and driver messages; request bodies and authentication tokens are not recorded. Enable it, reproduce the issue, then share the relevant log if debugging is needed.
+
+
+### Diagnostics layout and log location (0.3.20)
+
+The Diagnostics heading, setting, file path and actions now share consistent card padding. Developer / Change log folder opens a folder picker, checks that the folder is writable, and saves the destination across restarts. Logging switches to the selected folder immediately when enabled; existing logs stay in their original folder. The displayed path and Open error log button follow the current destination.
