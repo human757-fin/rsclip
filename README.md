@@ -107,3 +107,10 @@ In-app NSIS updates now request restart on successful installation. The installe
 Unexpected replay-process exits trigger up to three retries, delayed by 2, 5, and 15 seconds. The retry budget resets after 30 seconds of stable capture. A restart is announced only after a completed video segment is available. The current error stays visible until recovery succeeds. Manual stop, cancelling a pending restart, and quitting cancel recovery. Failed manual recordings retain their segments for Save recording and are not replaced automatically.
 
 Stopped/retrying, restarted, and exhausted-retry notifications use the existing feedback overlay and respect its stream-proof setting. When Capture overlay is off, notifications update the app status and tray tooltip without creating an overlay WebView.
+
+
+### Audio recovery and faster playback (0.3.17)
+
+Desktop/microphone streams are reopened on capture failure and follow changes to Windows' default device. Failed app loopbacks are retried after 3 seconds instead of being excluded until the app closes. Asynchronous activation has a 5-second timeout. Missing sources contribute silence, keeping the existing audio pipe, video encoder, replay history, and recordings running. Isolated-track write failures also retry without terminating the mixed audio feed. Existing status/overlay notifications report audio loss and recovery. Device interruptions still leave gaps in captured sound; live headset/device switching needs verification.
+
+Playback starts reading the original immediately. When WebView2 reports native HEVC support, rsclip tries it without conversion and falls back if no frame arrives within 4 seconds. Compatibility previews now use H.264/AAC MP4 with NVENC, falling back to a two-thread x264 encode if needed, retaining up to 1080p/60 quality. Eight recent base previews are cached (2 GiB budget, except the active preview). Switching clips no longer discards the previous preview. Per-clip audio previews reuse this video and encode only the mixed audio. Old WebM previews are unused and can be removed from the playback-cache folder when rsclip is closed.

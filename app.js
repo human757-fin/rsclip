@@ -10,6 +10,8 @@ let clipChannels = [];
 let mixResume;
 let playbackVersion = 0;
 let previewRequested = false;
+let playbackRequest = 0;
+let nativeFrameTimer;
 let lastFiles = "";
 let lastKeys = "";
 let editingKey;
@@ -162,6 +164,7 @@ function openFile(file) {
 function goBack() {
   current = undefined;
   playbackVersion++;
+  clearTimeout(nativeFrameTimer);
   video.pause();
   video.removeAttribute("src");
   video.removeAttribute("poster");
@@ -676,27 +679,44 @@ function setPlaybackReady(ready) {
 async function preparePlayback(file, force = false, gains) {
   if (force) previewRequested = true;
   const version = playbackVersion;
+  const request = ++playbackRequest;
+  clearTimeout(nativeFrameTimer);
   video.pause();
   setPlaybackReady(false);
+  const nativeHevc = !force && gains === undefined && typeof video.requestVideoFrameCallback === "function" && Boolean(video.canPlayType('video/mp4; codecs="hvc1"'));
+  if (!force && gains === undefined) {
+    video.src = path(file);
+    if (typeof video.requestVideoFrameCallback === "function") {
+      const callback = video.requestVideoFrameCallback(() => {
+        if (version === playbackVersion && request === playbackRequest) clearTimeout(nativeFrameTimer);
+      });
+      nativeFrameTimer = setTimeout(() => {
+        video.cancelVideoFrameCallback(callback);
+        if (version === playbackVersion && request === playbackRequest && !previewRequested) preparePlayback(file, true);
+      }, 4000);
+    }
+  }
   playbackStatus(force ? "Preparing a compatible preview..." : "Opening clip...");
   try {
     const response = await fetch("/api/prepare-playback", {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-Rsclip-Token": state.token },
-      body: JSON.stringify({ name: file.name, force, gains }),
+      body: JSON.stringify({ name: file.name, force, gains, nativeHevc }),
     });
     const result = await response.json();
     if (!response.ok) throw new Error(result.error);
-    if (version !== playbackVersion) return;
+    if (version !== playbackVersion || request !== playbackRequest) return;
     if (!clipChannels.length) {
       clipChannels = result.channels || [];
       clipGains = Object.fromEntries(clipChannels.map(([id]) => [id, 100]));
       renderClipMixer();
     }
     previewRequested = result.proxy;
-    video.src = result.url || (result.proxy ? "/playback/" + encodeURIComponent(file.name) : path(file));
+    const url = result.url || (result.proxy ? "/playback/" + encodeURIComponent(file.name) : path(file));
+    if (result.proxy) clearTimeout(nativeFrameTimer);
+    if (video.getAttribute("src") !== url) video.src = url;
   } catch (error) {
-    if (version === playbackVersion) playbackStatus(error.message);
+    if (version === playbackVersion && request === playbackRequest) playbackStatus(error.message);
   }
 }
 

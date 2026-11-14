@@ -546,6 +546,21 @@ impl Recorder {
   }
 
   pub fn tick(&mut self) {
+    let audio_events: Vec<_> = self.audio.as_ref().map(|a| a.events.try_iter().collect()).unwrap_or_default();
+    for event in audio_events {
+      let title = match event {
+        audio::AudioEvent::Interrupted => "Audio interrupted — retrying",
+        audio::AudioEvent::Recovered => "Audio capture restored",
+        audio::AudioEvent::TracksLost => "Audio tracks unavailable",
+        audio::AudioEvent::TracksRecovered => "Audio tracks restored",
+      };
+      self.notice = match event {
+        audio::AudioEvent::Interrupted => "Audio capture interrupted. Reconnecting; video continues with silence for missing sources.",
+        audio::AudioEvent::TracksLost => "Separate audio tracks could not be written. The mixed audio feed continues; retrying track writes.",
+        _ => title,
+      }.into();
+      self.status_notification(title);
+    }
     let was_active = self.active();
     if let Err(error) = self.maintain() { self.error = format!("{error:#}"); }
     let now = Instant::now();

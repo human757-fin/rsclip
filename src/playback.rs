@@ -16,7 +16,7 @@ pub static VIDEO_JOBS: Mutex<()> = Mutex::new(());
 pub fn cached_path(root: &Path, source: &Path, extension: &str) -> Result<PathBuf> {
   let info = source.metadata().context("Clip not found")?;
   let mut key = DefaultHasher::new();
-  "preview-1080-v2".hash(&mut key);
+  "preview-h264-v3".hash(&mut key);
   source.hash(&mut key);
   info.len().hash(&mut key);
   info.modified()?.hash(&mut key);
@@ -84,8 +84,8 @@ pub fn thumbnail(root: &Path, source: &Path) -> Result<PathBuf> {
   Ok(path)
 }
 
-pub fn prepare(root: &Path, source: &Path, force: bool) -> Result<bool> {
-  let path = cached_path(root, source, "webm")?;
+pub fn prepare(root: &Path, source: &Path, force: bool, native_hevc: bool) -> Result<bool> {
+  let path = cached_path(root, source, "mp4")?;
   if path.is_file() {
     return Ok(true);
   }
@@ -106,7 +106,8 @@ pub fn prepare(root: &Path, source: &Path, force: bool) -> Result<bool> {
       .output();
     match probe {
       Ok(output) if output.status.success() => {
-        if String::from_utf8_lossy(&output.stdout).trim() == "h264" {
+        let codec = String::from_utf8_lossy(&output.stdout);
+        if codec.trim() == "h264" || (native_hevc && codec.trim() == "hevc") {
           return Ok(false);
         }
       }
@@ -115,28 +116,37 @@ pub fn prepare(root: &Path, source: &Path, force: bool) -> Result<bool> {
   }
   let _guard = VIDEO_JOBS.lock().unwrap();
   if !path.is_file() {
-    let mut command = ffmpeg();
-    command.args(["-nostdin", "-threads", "2", "-i"]).arg(source).args([
-      "-map", "0:v:0", "-map", "0:a:0?",
-      "-vf", r"fps=min(source_fps\,60),scale=w=min(1920\,iw):h=min(1080\,ih):force_original_aspect_ratio=decrease:force_divisible_by=2,format=yuv420p",
-      "-c:v", "libvpx", "-deadline", "realtime", "-cpu-used", "4", "-threads", "2",
-      "-crf", "8", "-b:v", "8000k", "-c:a", "libopus", "-b:a", "96k",
-    ]);
-    render(command, &path)?;
-    // Keep only the latest preview video. Thumbnails are small and stay cached.
-    for entry in fs::read_dir(root)?.flatten() {
-      let old = entry.path();
-      if old != path
-        && old.extension().is_some_and(|ext| ext == "webm")
-        && old
-          .file_stem()
-          .and_then(|stem| stem.to_str())
-          .is_some_and(|stem| stem.len() == 16 && stem.bytes().all(|byte| byte.is_ascii_hexdigit()))
-      {
-        let _ = fs::remove_file(old);
+    let encode = |hardware: bool| {
+      let mut command = ffmpeg();
+      command.args(["-nostdin", "-threads", "2", "-filter_threads", "2", "-i"]).arg(source).args([
+        "-map", "0:v:0", "-map", "0:a:0?",
+        "-vf", r"fps=min(source_fps\,60),scale=w=min(1920\,iw):h=min(1080\,ih):force_original_aspect_ratio=decrease:force_divisible_by=2,format=yuv420p",
+      ]);
+      if hardware {
+        command.args(["-c:v", "h264_nvenc", "-preset", "p1", "-rc", "vbr", "-cq", "20", "-b:v", "0"]);
+      } else {
+        command.args(["-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-threads", "2"]);
       }
+      command.args(["-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart"]);
+      render(command, &path)
+    };
+    if encode(true).is_err() { encode(false)?; }
+    // Retain recent previews rather than re-encoding on every clip switch.
+    let mut entries: Vec<_> = fs::read_dir(root)?.flatten().filter_map(|entry| {
+      let path = entry.path();
+      let stem = path.file_stem()?.to_str()?;
+      if path.extension()? != "mp4" || stem.len() != 16 || !stem.bytes().all(|c| c.is_ascii_hexdigit()) { return None; }
+      let meta = path.metadata().ok()?;
+      Some((meta.modified().ok()?, path, meta.len()))
+    }).collect();
+    entries.sort_by(|a,b| b.0.cmp(&a.0));
+    let mut bytes = 0u64;
+    for (index, (_, old, size)) in entries.into_iter().enumerate() {
+      bytes += size;
+      if old != path && (index >= 8 || bytes > 2 * 1024 * 1024 * 1024) { let _ = fs::remove_file(old); }
     }
   }
+
   Ok(true)
 }
 
@@ -181,11 +191,11 @@ pub fn mixed_preview(root: &Path, source: &Path, body: &serde_json::Value) -> Re
   let probe = probe_audio(source)?;
   let graph =
     crate::mixer::export_filter(&probe, &mix).context("This clip has no separate audio tracks")?;
-  prepare(root, source, true)?;
-  let video = cached_path(root, source, "webm")?;
+  prepare(root, source, true, false)?;
+  let video = cached_path(root, source, "mp4")?;
   let mut hash = DefaultHasher::new();
   mix.gains.hash(&mut hash);
-  let path = cached_path(root, source, &format!("{:016x}.mix.webm", hash.finish()))?;
+  let path = cached_path(root, source, &format!("{:016x}.mix.mp4", hash.finish()))?;
   let _guard = VIDEO_JOBS.lock().unwrap();
   if !path.is_file() {
     let mut command = ffmpeg();
@@ -204,9 +214,11 @@ pub fn mixed_preview(root: &Path, source: &Path, body: &serde_json::Value) -> Re
         "-c:v",
         "copy",
         "-c:a",
-        "libopus",
+        "aac",
         "-b:a",
-        "160k",
+        "192k",
+        "-movflags",
+        "+faststart",
       ]);
     render(command, &path)?;
   }
@@ -258,7 +270,7 @@ mod tests {
     );
     let muted = serde_json::json!({"gains":{"microphone":0}});
     let first = mixed_preview(&root, &source, &muted)?;
-    assert_eq!(first.len(), 42);
+    assert_eq!(first.len(), 41);
     assert_eq!(first, mixed_preview(&root, &source, &muted)?);
     let other = mixed_preview(
       &root,
@@ -281,6 +293,27 @@ mod tests {
     assert!(decoded.status.success());
     assert!(!decoded.stdout.is_empty());
     assert!(decoded.stdout.iter().all(|&byte| byte == 0));
+    let cached = cached_path(&root, &source, "mp4")?;
+    let cache_modified = cached.metadata()?.modified()?;
+    assert!(prepare(&root, &source, true, false)?);
+    assert_eq!(cached.metadata()?.modified()?, cache_modified);
+    let second = root.join("second.mp4");
+    fs::copy(&source, &second)?;
+    prepare(&root, &second, true, false)?;
+    assert!(cached.is_file(), "Opening another clip must retain the prior preview");
+    let hevc = root.join("hevc.mp4");
+    let result = ffmpeg().args(["-nostdin", "-threads", "2", "-i"]).arg(&source)
+      .args(["-map", "0:v:0", "-an", "-c:v", "libx265", "-preset", "ultrafast", "-x265-params", "pools=2:frame-threads=1", "-tag:v", "hvc1"])
+      .arg(&hevc).output()?;
+    assert!(result.status.success(), "{}", String::from_utf8_lossy(&result.stderr));
+    assert!(!prepare(&root, &hevc, false, true)?, "Native HEVC must avoid transcoding");
+    assert!(prepare(&root, &hevc, true, false)?);
+    let proxy = cached_path(&root, &hevc, "mp4")?;
+    let probe = Command::new(crate::maintenance::executable("ffprobe"))
+      .creation_flags(0x0800_0000).args(["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=codec_name", "-of", "csv=p=0"])
+      .arg(proxy).output()?;
+    assert!(probe.status.success());
+    assert_eq!(String::from_utf8_lossy(&probe.stdout).trim(), "h264");
     fs::remove_dir_all(root)?;
     Ok(())
   }

@@ -154,15 +154,15 @@ fn handle(
     }
     (Some("GET"), path) if path.starts_with("/mix/") => {
       let name = path.trim_start_matches("/mix/");
-      if name.len() == 42
-        && name.ends_with(".mix.webm")
+      if name.len() == 41
+        && name.ends_with(".mix.mp4")
         && name
           .bytes()
-          .all(|b| b.is_ascii_hexdigit() || b".mixweb".contains(&b))
+          .all(|b| b.is_ascii_hexdigit() || b".mixmp4".contains(&b))
       {
         let root = recorder.lock().unwrap().playback_cache();
         if let Ok(file) = File::open(root.join(name)) {
-          return media(&mut stream, file, "video/webm", header("Range"));
+          return media(&mut stream, file, "video/mp4", header("Range"));
         }
       }
       respond(&mut stream, "404 Not Found", "text/plain", b"Mix not found")
@@ -183,7 +183,7 @@ fn handle(
           let path = if thumbnail {
             playback::thumbnail(&root, &source)
           } else {
-            playback::cached_path(&root, &source, "webm")
+            playback::cached_path(&root, &source, "mp4")
           };
           path.ok().and_then(|path| File::open(path).ok())
         });
@@ -194,7 +194,7 @@ fn handle(
             if thumbnail {
               "image/jpeg"
             } else {
-              "video/webm"
+              "video/mp4"
             },
             header("Range"),
           );
@@ -322,7 +322,7 @@ fn handle(
                 Ok(json!({"proxy":true,"url":format!("/mix/{name}"),"channels":channels}))
               } else {
                 let proxy =
-                  playback::prepare(&root, &source, body["force"].as_bool().unwrap_or(false))?;
+                  playback::prepare(&root, &source, body["force"].as_bool().unwrap_or(false), body["nativeHevc"].as_bool().unwrap_or(false))?;
                 Ok(json!({"proxy":proxy,"channels":channels}))
               }
             })
