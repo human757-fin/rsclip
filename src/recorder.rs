@@ -51,22 +51,35 @@ struct Recovery {
   next: Option<Instant>,
   running_since: Option<Instant>,
   pending_confirmation: bool,
+  desktop_lost: bool,
 }
 impl Recovery {
   fn schedule(&mut self, now: Instant) -> bool {
     self.running_since = None;
     self.pending_confirmation = false;
-    self.next = [2, 5, 15].get(self.attempts).map(|seconds| now + Duration::from_secs(*seconds));
+    let delay = [2, 5, 15].get(self.attempts).copied().or(if self.desktop_lost { Some(30) } else { None });
+    self.next = delay.map(|seconds| now + Duration::from_secs(seconds));
     self.next.is_some()
+  }
+  fn confirmation_timed_out(&self, now: Instant) -> bool {
+    self.pending_confirmation && self.running_since.is_some_and(|since| now.saturating_duration_since(since) >= Duration::from_secs(15))
   }
   fn take_due(&mut self, now: Instant) -> bool {
     if self.next.is_some_and(|deadline| now >= deadline) {
       self.next = None;
-      self.attempts += 1;
+      self.attempts = self.attempts.saturating_add(1);
       self.pending_confirmation = true;
       true
     } else { false }
   }
+}
+
+fn desktop_capture_lost(log: &str) -> bool {
+  let log = log.to_ascii_lowercase();
+  log.contains("dxgi_error_access_lost")
+    || log.contains("failed to enumerate dxgi output")
+    || ((log.contains("ddagrab") || log.contains("dda "))
+      && (log.contains("releaseframe failed") || log.contains("acquirenextframe failed") || log.contains("887a0026")))
 }
 
 struct Recording {
@@ -509,14 +522,15 @@ impl Recorder {
       if let Some(status) = child.try_wait()? {
         self.child = None;
         let audio_result = self.finish_audio();
-        if !status.success() {
-          self.discard_partial()?;
-          let log = fs::read_to_string(self.buffer.as_ref().unwrap().join("ffmpeg.log"))
-            .unwrap_or_default();
-          bail!(
-            "Capture stopped. {}",
-            log.trim().chars().take(900).collect::<String>()
-          );
+        let log = self.buffer.as_ref().and_then(|path| fs::read_to_string(path.join("ffmpeg.log")).ok()).unwrap_or_default();
+        self.recovery.desktop_lost = desktop_capture_lost(&log);
+        if !status.success() || self.recovery.desktop_lost {
+          crate::diagnostics::record("FFmpeg capture", &format!("Exit: {status}; profile: {:?}\n{log}", self.settings.encoding));
+          if !status.success() { self.discard_partial()?; }
+          if self.recovery.desktop_lost {
+            bail!("Desktop capture was interrupted (Desktop Duplication). See the capture status and Developer error log for recovery details.");
+          }
+          bail!("Capture stopped. {}", log.trim().chars().take(900).collect::<String>());
         }
         audio_result.context("Desktop audio stopped unexpectedly")?;
         self.notice = "Replay buffer ended".into();
@@ -563,11 +577,18 @@ impl Recorder {
 
   fn schedule_restart(&mut self, now: Instant) {
     if self.recovery.schedule(now) {
-      self.notice = "Replay buffer stopped. Automatic restart scheduled.".into();
-      self.status_notification("Buffer stopped — retrying");
+      if self.recovery.desktop_lost && self.recovery.attempts >= 3 {
+        self.notice = "Waiting for the desktop to become capturable. Retrying every 30 seconds; Stop cancels recovery.".into();
+        if self.recovery.attempts == 3 { self.status_notification("Waiting for desktop capture"); }
+      } else {
+        self.notice = if self.recovery.desktop_lost {
+          "Desktop capture interrupted. Reconnecting automatically."
+        } else { "Replay buffer stopped. Automatic restart scheduled." }.into();
+        self.status_notification("Buffer stopped - retrying");
+      }
     } else {
       self.notice = "Replay buffer could not recover after 3 attempts. Start it manually to try again.".into();
-      self.status_notification("Buffer stopped — restart failed");
+      self.status_notification("Buffer stopped - restart failed");
     }
   }
 
@@ -601,6 +622,18 @@ impl Recorder {
         self.status_notification("Recording stopped unexpectedly");
       }
     }
+    if self.active() && self.recording.is_none() && self.recovery.confirmation_timed_out(now)
+      && self.parts().is_ok_and(|parts| parts.len() < 2) {
+      let mut recovery = std::mem::take(&mut self.recovery);
+      if let Some(log) = self.buffer.as_ref().and_then(|path| fs::read_to_string(path.join("ffmpeg.log")).ok()) {
+        recovery.desktop_lost |= desktop_capture_lost(&log);
+        crate::diagnostics::record("stalled capture", &log);
+      }
+      if let Err(error) = self.stop() { crate::diagnostics::record("capture recovery shutdown", &format!("{error:#}")); }
+      self.recovery = recovery;
+      self.error = "Capture restarted but did not produce video within 15 seconds. Reconnecting.".into();
+      self.schedule_restart(Instant::now());
+    }
     if !self.active() && self.recording.is_none() && self.recovery.take_due(now) {
       let previous_error = self.error.clone();
       if let Err(error) = self.start() {
@@ -619,6 +652,7 @@ impl Recorder {
     if !self.error.is_empty() { crate::diagnostics::record("capture", &self.error); }
     if self.active() && self.recovery.running_since.is_some_and(|since| now.saturating_duration_since(since) >= Duration::from_secs(30)) {
       self.recovery.attempts = 0;
+      self.recovery.desktop_lost = false;
     }
   }
 
@@ -979,6 +1013,7 @@ impl Recorder {
       }
       "toggle" if self.active() || self.recovery.next.is_some() => {
         self.stop()?;
+        self.error.clear();
         self.notice = "Replay buffer stopped".into();
         self.status_notification("Buffer stopped");
       }
@@ -1114,6 +1149,44 @@ mod tests {
   }
 
   #[test]
+  fn display_loss_continues_retrying_and_manual_stop_can_cancel_it() {
+    let now = Instant::now();
+    let mut recovery = Recovery { desktop_lost: true, ..Recovery::default() };
+    for delay in [2, 5, 15, 30, 30, 30, 30] {
+      assert!(recovery.schedule(now));
+      assert!(!recovery.take_due(now + Duration::from_secs(delay - 1)));
+      assert!(recovery.take_due(now + Duration::from_secs(delay)));
+    }
+    recovery = Recovery::default();
+    assert!(!recovery.take_due(now + Duration::from_secs(3600)));
+    assert!(recovery.next.is_none());
+    // A new permanent failure must not inherit unlimited desktop retries.
+    recovery.attempts = 3;
+    assert!(!recovery.schedule(now));
+  }
+
+  #[test]
+  fn recovery_requires_frames_and_has_a_confirmation_deadline() {
+    let now = Instant::now();
+    let mut recovery = Recovery { pending_confirmation: true, running_since: Some(now), ..Recovery::default() };
+    assert!(!recovery.confirmation_timed_out(now + Duration::from_secs(14)));
+    assert!(recovery.confirmation_timed_out(now + Duration::from_secs(15)));
+    recovery.pending_confirmation = false;
+    assert!(!recovery.confirmation_timed_out(now + Duration::from_secs(100)));
+  }
+
+  #[test]
+  fn desktop_loss_classification_uses_the_primary_capture_error() {
+    assert!(desktop_capture_lost("[Parsed_ddagrab_0] DDA ReleaseFrame failed!\nBufferSourceContext.pix_fmt requires hw_frames_ctx to be non-NULL!\nhevc_nvenc Could not open encoder before EOF"));
+    assert!(desktop_capture_lost("DDA error ReleaseFrame failed!"));
+    assert!(desktop_capture_lost("[ddagrab] AcquireNextFrame failed: 887a0026"));
+    assert!(desktop_capture_lost("Failed to enumerate DXGI output 1"));
+    assert!(!desktop_capture_lost("Driver does not support the required nvenc API version"));
+    assert!(!desktop_capture_lost("No space left on device"));
+    assert!(!desktop_capture_lost("Setting BufferSourceContext.pix_fmt to a HW format requires hw_frames_ctx to be non-NULL!"));
+  }
+
+  #[test]
   fn crashed_buffer_notifies_and_manual_stop_cancels_recovery() -> Result<()> {
     let root = env::current_dir()?.join("target").join(format!("recovery-test-{}", Uuid::new_v4()));
     let data = root.join("rsclip");
@@ -1155,6 +1228,20 @@ mod tests {
     recorder.act("toggle", &Value::Null)?;
     assert!(recorder.recovery.next.is_none());
     assert!(!recorder.active());
+    fs::write(buffer.join("ffmpeg.log"), "[Parsed_ddagrab_0] DDA ReleaseFrame failed!\nhevc_nvenc Could not open encoder before EOF")?;
+    recorder.recovery.attempts = 3;
+    let mut child = Command::new("cmd.exe").creation_flags(0x0800_0000).args(["/c", "exit", "1"]).spawn()?;
+    child.wait()?;
+    recorder.child = Some(child);
+    let before = Instant::now();
+    recorder.tick();
+    assert!(recorder.recovery.desktop_lost);
+    assert!(recorder.recovery.next.unwrap() >= before + Duration::from_secs(29));
+    assert!(!recorder.error.contains("hevc_nvenc"));
+    recorder.act("toggle", &Value::Null)?;
+    assert!(recorder.recovery.next.is_none());
+    assert!(!recorder.recovery.desktop_lost);
+    assert!(recorder.error.is_empty());
     // A recording crash preserves its segments and is never automatically replaced.
     recorder.recording = Some(Recording { first_part: None, resume_buffer: true });
     let mut child = Command::new("cmd.exe").creation_flags(0x0800_0000).args(["/c", "exit", "1"]).spawn()?;
