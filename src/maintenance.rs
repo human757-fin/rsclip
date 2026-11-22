@@ -5,11 +5,12 @@ use std::{
   os::windows::process::CommandExt,
   path::PathBuf,
   process::Command,
-  sync::{Mutex, OnceLock},
+  sync::{atomic::{AtomicBool, Ordering}, Mutex, OnceLock},
 };
 
 static STATUS: OnceLock<Mutex<Value>> = OnceLock::new();
 static JOB: Mutex<()> = Mutex::new(());
+static UPDATE_CHECK_STARTED: AtomicBool = AtomicBool::new(false);
 static FFMPEG_JOB: Mutex<()> = Mutex::new(());
 fn status() -> &'static Mutex<Value> {
   STATUS.get_or_init(|| {
@@ -116,6 +117,7 @@ pub fn setup_ffmpeg(recorder: &Mutex<crate::recorder::Recorder>) {
 }
 pub fn check_update() {
   let Ok(_job) = JOB.try_lock() else { return };
+  UPDATE_CHECK_STARTED.store(true, Ordering::Release);
   status().lock().unwrap()["update"] = json!("Checking GitHub…");
   let script =
     include_str!("../installer/check-update.ps1").replace("__VERSION__", env!("CARGO_PKG_VERSION"));
@@ -155,7 +157,10 @@ pub fn install() -> Result<()> {
 }
 pub fn start(recorder: std::sync::Arc<Mutex<crate::recorder::Recorder>>) {
   std::thread::spawn(move || setup_ffmpeg(&recorder));
-  std::thread::spawn(check_update);
+  std::thread::spawn(|| {
+    std::thread::sleep(std::time::Duration::from_secs(30));
+    if !UPDATE_CHECK_STARTED.load(Ordering::Acquire) { check_update(); }
+  });
 }
 
 #[cfg(test)]

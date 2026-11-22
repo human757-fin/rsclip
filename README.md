@@ -133,3 +133,8 @@ The Diagnostics heading, setting, file path and actions now share consistent car
 ReleaseFrame/AcquireNextFrame failures and lost desktop duplication sessions now get a concise capture error rather than the secondary encoder/filter cascade. The raw FFmpeg error and encoding profile go into the opt-in Developer log. Known desktop-capture failures retry after 2, 5, and 15 seconds, then every 30 seconds until capture returns or Stop is pressed. Waiting notifications do not repeat on every slow retry. Codec/configuration errors retain the three-attempt limit. A restarted process must produce video; one that produces no complete segment within 15 seconds is stopped and retried. Manual recordings retain the existing save-completed-segments behavior rather than being overwritten by a new buffer.
 
 Desktop locks, display changes and capture-driver faults can still interrupt recording; frames during an unavailable capture session cannot be recovered. The release preserves the selected monitor, codec, resolution, and compression settings during recovery. Live display-switch/lock recovery requires testing on the affected Windows system.
+
+
+### Delayed update check (0.3.22)
+
+The automatic update check waits 30 seconds after launch to give VPN/DNS connectivity time to initialize. Check for updates still runs immediately. A manual check during that delay replaces the scheduled startup check, avoiding a duplicate request. FFmpeg setup and capture startup are unchanged.
